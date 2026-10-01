@@ -20,20 +20,22 @@
 | 对象存储实际停机 | 实际停止 S3 服务，归档阶段不能成功；恢复服务后产物提交成功且下载校验通过 |
 | 总截止时间 | 提交日起 12 秒截止，长任务进入 timed_out，容器、卷与网络回收 |
 | 配置与接口 | Compose config --quiet；YAML 解析；OpenAPI 内部引用检查；Windows CLI 编译 |
+| GitHub Actions 默认部署 | [CI 36833979158](https://github.com/ZoeySigel/Distributed-Coding-Agent-Runtime/actions/runs/36833979158)，commit `2700e00`：Linux race、真实 PostgreSQL 17.4、vet、Codex CLI 契约、services/workspace 生产镜像、固定源码 MinIO、收集器、默认 Compose readiness 和真实 Docker 确定性 E2E 全部通过；启用 Worker/Workspace/网络/对象存储故障测试；真实模型冒烟未启用 |
 
 Docker Engine ID 为 `d4dc22f2-d748-4a19-bc81-9759fd295173`，这是一个独立 Engine。不能用它的多容器执行结果宣称跨机验收完成。
 
 完整套件曾遇到 GitHub TLS EOF，定位到网络暂时故障分类遗漏并修复；相关网络分类单元测试和失败项的真实容器复测均通过。测试用 tmpfs 初次默认 noexec 导致临时 Go 二进制不能启动，修正为显式 exec 后最低工具链测试通过。以上失败没有计为成功。
 
-## Docker 验收的替代依赖
+## 初次本地 Docker 验收的替代依赖
 
 默认生产 Dockerfile 和 Compose 保持计划中的固定 Codex、Node、Go、Python、PostgreSQL 17.4 与 MinIO 配置。由于 Docker Hub 及尝试的镜像源访问失败或下载停滞，本次真实容器验收使用已缓存镜像构建的 **fixture 专用镜像**、缓存 PostgreSQL 18，以及缓存 RustFS 作为真实 S3 兼容服务。
 
 测试源码没有改变业务状态机或绕过网关、租约、对象上传及完成验证；这些测试仍然执行真实 Docker Engine API 和 S3 SDK。fixture 专用镜像不含 Codex/Node/Python，不能用于真实模型任务，也不证明默认生产镜像完整构建成功。临时镜像、构建文件、数据库与下载缓存在被忽略的 `.cache/` 中。
 
+随后 GitHub Actions 使用默认生产镜像和 PostgreSQL 17.4 完成了上述默认部署验收。首次 CI 因官方 MinIO 镜像不可拉取失败；默认部署改为从固定上游 commit 构建 MinIO 后，新 CI 全部通过。仍未执行真实模型调用，也没有将单 Engine 的 CI 结果作为跨机证明。
+
 ## 尚未完成的环境验收
 
-- GitHub Actions 首次运行已通过 Linux race、vet、Codex 契约、services/workspace 生产镜像构建和收集器测试；Compose 因官方 MinIO 镜像不可拉取而失败，完整 E2E 尚未通过。改为固定源码构建 MinIO 后等待新 CI 实测，不能将首次构建成功记为完整流水线成功。
 - 配置真实模型密钥后的 Codex 冒烟测试：没有提供真实凭据，测试明确 SKIP。
 - 私有 GitHub 仓库的真实 clone：没有提供私有仓库与只读凭据；实现临时 askpass、输入删除与日志脱敏，尚未完成真实凭据验收。
 - 两个独立 Linux Docker Engine 的任务分配、故障后跨机重试和 Engine 重启：目前只有一个 Engine。步骤见 operations.md；本次没有重启包含其他用户服务的 Docker Engine。
