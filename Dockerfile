@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     mkdir -p /workspace /baseline /home/agent /run/dcar && chown -R 1000:1000 /workspace /baseline /home/agent /run/dcar
 COPY --from=build /usr/local/go /usr/local/go
 COPY --from=build /out/dcar-workspace /usr/local/bin/dcar-workspace
+COPY config/codex-bigmodel-models.json /etc/dcar/codex-bigmodel-models.json
 ENV PATH="/opt/venv/bin:/usr/local/go/bin:${PATH}" HOME=/home/agent GOTOOLCHAIN=local PIP_TARGET=/home/agent/python PYTHONPATH=/home/agent/python
 USER 1000:1000
 WORKDIR /workspace

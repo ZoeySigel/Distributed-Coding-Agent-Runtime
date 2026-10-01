@@ -458,7 +458,7 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 			if e = stage("agent"); e != nil {
 				return e
 			}
-			result, e := exec.Execute(ctx, agent, runner.Input{Prompt: prompt, Model: a.Profile.Model, Executor: a.Profile.Executor})
+			result, e := exec.Execute(ctx, agent, runner.Input{Prompt: prompt, Model: a.Profile.Model, ModelCatalog: a.Profile.ModelCatalog, Executor: a.Profile.Executor})
 			if e != nil {
 				finalErr = e
 				break

@@ -25,6 +25,12 @@ func TestPinnedCodexCLIContract(t *testing.T) {
 	if e != nil || !strings.Contains(string(version), "0.114.0") {
 		t.Fatalf("expected pinned Codex 0.114.0: %s %v", version, e)
 	}
+	for _, model := range []string{"gpt-5.4", "glm-5.3"} {
+		t.Run(model, func(t *testing.T) { pinnedCodexContract(t, binary, model) })
+	}
+}
+
+func pinnedCodexContract(t *testing.T, binary, model string) {
 	var requests atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/responses" || r.Method != "POST" || r.Header.Get("Authorization") != "Bearer contract-attempt" {
@@ -34,7 +40,7 @@ func TestPinnedCodexCLIContract(t *testing.T) {
 		var payload struct {
 			Model string `json:"model"`
 		}
-		if json.NewDecoder(r.Body).Decode(&payload) != nil || payload.Model != "gpt-5.4" {
+		if json.NewDecoder(r.Body).Decode(&payload) != nil || payload.Model != model {
 			http.Error(w, "bad model", 400)
 			return
 		}
@@ -42,7 +48,7 @@ func TestPinnedCodexCLIContract(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		text := map[string]any{"type": "output_text", "text": "contract ready", "annotations": []any{}}
 		message := map[string]any{"id": "msg_contract", "type": "message", "role": "assistant", "status": "completed", "content": []any{text}}
-		response := map[string]any{"id": "resp_contract", "object": "response", "status": "completed", "model": "gpt-5.4", "output": []any{message}, "usage": map[string]any{"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}}
+		response := map[string]any{"id": "resp_contract", "object": "response", "status": "completed", "model": model, "output": []any{message}, "usage": map[string]any{"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}}
 		for _, event := range []map[string]any{
 			{"type": "response.created", "response": map[string]any{"id": "resp_contract", "status": "in_progress", "output": []any{}}},
 			{"type": "response.output_item.added", "output_index": 0, "item": map[string]any{"id": "msg_contract", "type": "message", "role": "assistant", "status": "in_progress", "content": []any{}}},
@@ -57,7 +63,15 @@ func TestPinnedCodexCLIContract(t *testing.T) {
 	defer upstream.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	args := CodexArgs(upstream.URL+"/v1", "gpt-5.4")
+	catalog := ""
+	if model == "glm-5.3" {
+		var err error
+		catalog, err = filepath.Abs("../../config/codex-bigmodel-models.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := CodexArgs(upstream.URL+"/v1", model, catalog)
 	args = append(args[:len(args)-1], "--skip-git-repo-check", "-")
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = t.TempDir()

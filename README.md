@@ -28,6 +28,25 @@ export DCAR_TOKEN="$(python3 -c 'import json; print(json.load(open("secrets/api-
 
 将自己的模型 API key 写入 `secrets/model-key`，在 `config/profiles.json` 中配置有权限使用的模型，然后重启 gateway。空 key 可以运行 fixture 测试，不能运行真实 Codex。模型 key 不进入 Workspace；代理根据有效租约和 profile 限定模型请求。
 
+### 智谱 BigModel / GLM Coding Plan
+
+智谱官方 Codex 接入文档使用原生 Responses 接口 `https://open.bigmodel.cn/api/v1`，并通过模型目录声明 `glm-5.3`。参见 [官方接入文档](https://docs.bigmodel.cn/cn/coding-plan/tool/codex)。这是编程套餐的接入配置；普通按量付费 API 的权限与接口不能由此推定。
+
+确认使用 GLM Coding Plan 后，将 `config/profiles.bigmodel.example.json` 复制为 `config/profiles.json`，把对应套餐 API key 写入 `secrets/model-key`，在 `.env` 中加入：
+
+```dotenv
+MODEL_UPSTREAM=https://open.bigmodel.cn/api/v1
+```
+
+然后执行：
+
+```powershell
+docker compose -p dcar-local --profile build build --build-arg BASE_REGISTRY=mirror.gcr.io/library
+docker compose -p dcar-local up -d --no-build --force-recreate api gateway worker
+```
+
+Workspace 内的模型目录固定在 `/etc/dcar/codex-bigmodel-models.json`，由 profile 的 `model_catalog` 引用；不会写入或复用开发者桌面的 Codex 登录配置。为兼容固定 Codex 0.114.0，目录默认使用 `high`，未照搬当前官方示例中该 CLI 无法解析的 `max`。切换回 OpenAI 时恢复原 profile 和 `MODEL_UPSTREAM` 后重建相应容器。目前每套部署共用一个上游与一个长期模型密钥，不能同时将不同供应商的 profile 混用。无真实套餐密钥时只能验证 CLI 与本地 Responses 的协议契约，不能宣称 BigModel 模型调用成功。
+
 API 默认绑定 `127.0.0.1:8080`。检查 `GET /readyz`，并查看 `docker compose logs worker`。默认镜像含 Node.js、Go、Python、pytest、Git、ripgrep 和固定版本 Codex CLI。自定义工具链通过服务端 profile 镜像提供。
 
 本次实现的实际验证范围和未完成的环境验收见 [验证记录](docs/verification.md)。若本机 8080 被占用或处于 Windows 保留端口范围，启动前设置 `API_PORT=18180`，客户端设置 `DCAR_URL=http://localhost:18180`。

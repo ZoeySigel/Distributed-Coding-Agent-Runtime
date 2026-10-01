@@ -64,7 +64,7 @@ func Agent(ctx context.Context, in Input) (AgentResult, error) {
 	if in.Executor == "fixture" {
 		return Fixture(ctx, in)
 	}
-	args := CodexArgs("http://gateway:8081/v1", in.Model)
+	args := CodexArgs("http://gateway:8081/v1", in.Model, in.ModelCatalog)
 	cmd := exec.Command("codex", args...)
 	cmd.Dir = "/workspace/repo"
 	cmd.Stdin = strings.NewReader(in.Prompt)

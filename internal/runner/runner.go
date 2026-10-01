@@ -20,16 +20,17 @@ const Marker = "__DCAR_RESULT__"
 const OutputLimit = 1 << 20
 
 type Input struct {
-	Repository  string `json:"repository"`
-	Ref         string `json:"ref"`
-	SHA         string `json:"sha"`
-	Credential  string `json:"credential"`
-	Command     string `json:"command"`
-	Seconds     int    `json:"seconds"`
-	Prompt      string `json:"prompt"`
-	Model       string `json:"model"`
-	Executor    string `json:"executor"`
-	TestCommand string `json:"test_command"`
+	Repository   string `json:"repository"`
+	Ref          string `json:"ref"`
+	SHA          string `json:"sha"`
+	Credential   string `json:"credential"`
+	Command      string `json:"command"`
+	Seconds      int    `json:"seconds"`
+	Prompt       string `json:"prompt"`
+	Model        string `json:"model"`
+	ModelCatalog string `json:"model_catalog,omitempty"`
+	Executor     string `json:"executor"`
+	TestCommand  string `json:"test_command"`
 }
 type Prepared struct {
 	SHA               string `json:"sha"`

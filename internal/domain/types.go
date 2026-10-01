@@ -175,10 +175,11 @@ type TestResult struct {
 	Truncated  bool   `json:"truncated"`
 }
 type Profile struct {
-	Image    string `json:"image"`
-	Executor string `json:"executor"`
-	Model    string `json:"model"`
-	CPU      int64  `json:"cpu"`
-	Memory   int64  `json:"memory"`
-	PIDs     int64  `json:"pids"`
+	Image        string `json:"image"`
+	Executor     string `json:"executor"`
+	Model        string `json:"model"`
+	ModelCatalog string `json:"model_catalog,omitempty"`
+	CPU          int64  `json:"cpu"`
+	Memory       int64  `json:"memory"`
+	PIDs         int64  `json:"pids"`
 }

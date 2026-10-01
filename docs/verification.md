@@ -23,6 +23,7 @@
 | GitHub Actions 默认部署 | [CI 36833979158](https://github.com/ZoeySigel/Distributed-Coding-Agent-Runtime/actions/runs/36833979158)，commit `2700e00`：Linux race、真实 PostgreSQL 17.4、vet、Codex CLI 契约、services/workspace 生产镜像、固定源码 MinIO、收集器、默认 Compose readiness 和真实 Docker 确定性 E2E 全部通过；启用 Worker/Workspace/网络/对象存储故障测试；真实模型冒烟未启用 |
 | 终端客户端 | Windows 原生 PTY 实际启动、新建任务页面和 Ctrl+C 恢复终端；HTTP 测试服务验证幂等重发、SSE 终态、过期响应隔离、确认操作、日志限额与控制字符过滤、密码遮罩、70×20 至 140×45 布局；race、vet、Windows/Linux CLI 编译通过。HTTP 测试服务不替代真实 Docker 流水线或跨机验收 |
 | 工作目录启动 | 独立客户端配置不保存 token 值；真实 Git 验证 GitHub HTTPS/SSH origin、固定 HEAD 和未提交文件提示，换目录后配置与鉴权仍可加载；非 GitHub origin 不自动填入。实际运行 Windows 安装脚本，验证用户 PATH 注册，在不同工作目录通过 `dcar` 启动 PTY、自动填入 origin，Ctrl+C 恢复终端；本次启动时 18180 后端未运行，连接失败明确显示 |
+| BigModel 配置兼容性 | 真 Codex 0.114.0 Windows 与无外网 Linux Workspace，使用 GLM 模型目录与本地 Responses SSE 验证 glm-5.3 请求和完成事件；官方示例的 max 无法被固定 CLI 解析，改为 high 后通过。没有智谱真实模型调用，不证明套餐权限或模型服务兼容性的完整验收 |
 
 Docker Engine ID 为 `d4dc22f2-d748-4a19-bc81-9759fd295173`，这是一个独立 Engine。不能用它的多容器执行结果宣称跨机验收完成。
 
