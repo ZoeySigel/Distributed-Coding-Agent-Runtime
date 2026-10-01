@@ -1,0 +1,7 @@
+.env
+.cache/
+bin/
+secrets/
+results/
+*.test
+coverage.out

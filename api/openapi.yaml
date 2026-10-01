@@ -1,0 +1,316 @@
+openapi: 3.0.3
+info:
+  title: Distributed Coding Agent Runtime
+  version: 0.1.0
+  description: Internal team execution platform; at-least-once execution with fenced result publication.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      responses:
+        '200': {description: Process alive}
+  /readyz:
+    get:
+      security: []
+      responses:
+        '200': {description: Database connected}
+        '503': {description: Database unavailable}
+  /metrics:
+    get:
+      security: [{workerAuth: []}]
+      responses:
+        '200': {description: Prometheus metrics, content: {text/plain: {schema: {type: string}}}}
+  /v1/tasks:
+    post:
+      operationId: createTask
+      parameters: [{$ref: '#/components/parameters/idempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/TaskSpec'}}
+      responses:
+        '202': {description: Queued or idempotently replayed task, content: {application/json: {schema: {$ref: '#/components/schemas/Task'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    get:
+      operationId: listTasks
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+      responses:
+        '200': {description: Caller-owned tasks ordered newest first, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Task'}}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /v1/tasks/{id}:
+    parameters: [{$ref: '#/components/parameters/taskId'}]
+    get:
+      operationId: getTask
+      responses:
+        '200': {description: Task and ordered attempt history, content: {application/json: {schema: {$ref: '#/components/schemas/TaskDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/tasks/{id}/cancel:
+    parameters: [{$ref: '#/components/parameters/taskId'}]
+    post:
+      operationId: cancelTask
+      description: Idempotent; already terminal tasks retain their existing state. Logical cancellation precedes physical cleanup.
+      responses:
+        '200': {description: Current task, content: {application/json: {schema: {$ref: '#/components/schemas/Task'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/tasks/{id}/retry:
+    parameters: [{$ref: '#/components/parameters/taskId'}]
+    post:
+      operationId: retryTask
+      description: Creates a new task from failed/cancelled/timed_out, reusing the pinned SHA. Original history is immutable.
+      parameters: [{$ref: '#/components/parameters/idempotencyKey'}]
+      responses:
+        '202': {description: New linked task, content: {application/json: {schema: {$ref: '#/components/schemas/Task'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/tasks/{id}/report:
+    parameters: [{$ref: '#/components/parameters/taskId'}]
+    get:
+      operationId: auditReport
+      responses:
+        '200':
+          description: Control-plane audit, available even when the Workspace snapshot was lost
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/TaskDetail'}
+                  - {type: object, properties: {artifacts: {type: array, items: {$ref: '#/components/schemas/Artifact'}}, note: {type: string}}}
+  /v1/tasks/{id}/events:
+    parameters: [{$ref: '#/components/parameters/taskId'}]
+    get:
+      operationId: taskEvents
+      parameters:
+        - {name: Last-Event-ID, in: header, schema: {type: integer, format: int64, minimum: 0}}
+        - {name: after, in: query, schema: {type: integer, format: int64, minimum: 0}}
+      responses:
+        '200':
+          description: SSE execution events with numeric ID and JSON Event data, followed by terminal event containing Task. Header cursor takes precedence over after.
+          content: {text/event-stream: {schema: {type: string}}}
+  /v1/tasks/{id}/artifacts:
+    parameters: [{$ref: '#/components/parameters/taskId'}]
+    get:
+      operationId: listArtifacts
+      responses:
+        '200': {description: Current attempt's committed manifest, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Artifact'}}}}}
+  /v1/tasks/{id}/artifacts/{name}:
+    parameters:
+      - {$ref: '#/components/parameters/taskId'}
+      - {name: name, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: downloadArtifact
+      responses:
+        '200':
+          description: Artifact bytes
+          headers:
+            X-Checksum-Sha256: {schema: {type: string}, description: SHA-256 of downloaded bytes}
+          content: {application/octet-stream: {schema: {type: string, format: binary}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /internal/register:
+    post:
+      security: [{workerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Registration'}}}}
+      responses: {'200': {description: Registered; a new session revokes prior session authority}}
+  /internal/claim:
+    post:
+      security: [{workerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Registration'}}}}
+      responses:
+        '200': {description: Lease plus server-side execution profile; see internal/domain.Lease and Profile}
+        '204': {description: No eligible task or no available capacity}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /internal/update:
+    post:
+      security: [{workerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proof, renew]
+              properties:
+                proof: {$ref: '#/components/schemas/Proof'}
+                renew: {type: boolean}
+                stage: {type: string, enum: ['', preparing, agent, testing, archiving]}
+                sha: {type: string, pattern: '^[a-f0-9]{40}$'}
+                events: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/Event'}}
+      responses:
+        '200': {description: Lease deadline and configured TTL; SHA can only be pinned once}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /internal/lease:
+    post:
+      security: [{workerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [token], properties: {token: {type: string}}}}}}
+      responses:
+        '200': {description: Attempt ID, allowed model, remaining_seconds from database time}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /internal/credential:
+    post:
+      security: [{workerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Proof'}}}}
+      responses: {'200': {description: Preparation-only read credential after validating current execution authority}}
+  /internal/history:
+    post:
+      security: [{workerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Proof'}}}}
+      responses: {'200': {description: Ordered attempt history, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Attempt'}}}}}}
+  /internal/disposition:
+    post:
+      security: [{workerAuth: []}]
+      description: Read-only historical proof lookup for cleanup observation; grants no execution authority.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Proof'}}}}
+      responses:
+        '200': {description: Task status and seconds since transition measured by database clock}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /internal/upload:
+    post:
+      security: [{workerAuth: []}]
+      parameters:
+        - {name: name, in: query, required: true, schema: {type: string, pattern: '^[a-zA-Z0-9_.-]{1,80}$'}}
+        - {name: X-Proof, in: header, required: true, schema: {type: string}, description: JSON-encoded Proof}
+      requestBody: {required: true, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
+      responses:
+        '200': {description: Uploaded but not published artifact, content: {application/json: {schema: {$ref: '#/components/schemas/Artifact'}}}}
+        '413': {description: Exceeds 32 MiB limit}
+  /internal/complete:
+    post:
+      security: [{workerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proof, key, status, retryable, artifacts]
+              properties:
+                proof: {$ref: '#/components/schemas/Proof'}
+                key: {type: string, minLength: 1}
+                status: {type: string, enum: [succeeded, failed]}
+                error: {type: string}
+                retryable: {type: boolean}
+                artifacts: {type: array, maxItems: 20, items: {$ref: '#/components/schemas/Artifact'}}
+                verification: {$ref: '#/components/schemas/Verification'}
+      responses:
+        '200': {description: Committed or identical completion receipt replayed}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {description: Storage or database failure; retry exact completion request}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+    workerAuth: {type: http, scheme: bearer, description: Separate internal Worker token}
+  parameters:
+    taskId: {name: id, in: path, required: true, schema: {type: string, pattern: '^[a-f0-9]{32}$'}}
+    idempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 200}}
+  responses:
+    BadRequest: {description: Invalid JSON/configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Unauthorized: {description: Missing or invalid bearer token}
+    NotFound: {description: Missing task or owned by another caller}
+    Conflict: {description: Idempotency content changed, invalid state, expired/revoked lease, or fencing mismatch}
+  schemas:
+    Error: {type: object, properties: {error: {type: string}}}
+    TaskSpec:
+      type: object
+      additionalProperties: false
+      required: [repository, prompt]
+      properties:
+        repository: {type: string, description: GitHub HTTPS owner/repository URL without credentials/query/fragment}
+        prompt: {type: string, minLength: 1, maxLength: 65536}
+        ref: {type: string, maxLength: 256}
+        credential_ref: {type: string}
+        profile: {type: string, default: default}
+        prepare_command: {type: string, maxLength: 8192}
+        test_command: {type: string, maxLength: 8192}
+        timeout_seconds: {type: integer, minimum: 10, maximum: 86400, default: 3600}
+        test_timeout_seconds: {type: integer, minimum: 1, description: Defaults to min(600,total timeout); must not exceed total timeout}
+    Task:
+      type: object
+      properties:
+        id: {type: string}
+        parent_id: {type: string}
+        spec: {$ref: '#/components/schemas/TaskSpec'}
+        status: {type: string, enum: [queued, running, retry_wait, succeeded, failed, cancelled, timed_out]}
+        stage: {type: string}
+        sha: {type: string}
+        fence: {type: integer, format: int64}
+        attempt_id: {type: string}
+        error: {type: string}
+        created_at: {type: string, format: date-time}
+        deadline: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    TaskDetail:
+      type: object
+      properties:
+        task: {$ref: '#/components/schemas/Task'}
+        attempts: {type: array, items: {$ref: '#/components/schemas/Attempt'}}
+    Attempt:
+      type: object
+      properties:
+        id: {type: string}
+        task_id: {type: string}
+        worker_id: {type: string}
+        session: {type: string}
+        fence: {type: integer, format: int64}
+        status: {type: string}
+        stage: {type: string}
+        error: {type: string}
+        lease_until: {type: string, format: date-time}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+        verification: {$ref: '#/components/schemas/Verification'}
+    Verification:
+      type: object
+      properties:
+        state: {type: string, enum: [passed, failed, not_verified]}
+        baseline: {$ref: '#/components/schemas/TestSummary'}
+        tests: {type: array, items: {$ref: '#/components/schemas/TestSummary'}}
+        repair_rounds: {type: integer, minimum: 0, maximum: 2}
+        tests_modified: {type: array, items: {type: string}}
+    TestSummary:
+      type: object
+      properties:
+        command: {type: string}
+        exit_code: {type: integer}
+        duration_ms: {type: integer, format: int64}
+        timed_out: {type: boolean}
+        truncated: {type: boolean}
+    Proof:
+      type: object
+      required: [attempt_id, worker_id, session, fence]
+      properties:
+        attempt_id: {type: string}
+        worker_id: {type: string}
+        session: {type: string}
+        fence: {type: integer, format: int64}
+    Registration:
+      type: object
+      required: [id, session, capacity, profiles]
+      properties:
+        id: {type: string}
+        session: {type: string}
+        capacity: {type: integer, minimum: 1, maximum: 64}
+        profiles: {type: array, minItems: 1, items: {type: string}}
+    Event:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        attempt_id: {type: string}
+        sequence: {type: integer, format: int64, minimum: 1}
+        kind: {type: string}
+        data: {type: string, maxLength: 65536}
+        created_at: {type: string, format: date-time}
+    Artifact:
+      type: object
+      required: [name, key, sha256, size]
+      properties:
+        name: {type: string}
+        key: {type: string}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        size: {type: integer, format: int64, minimum: 0, maximum: 33554432}

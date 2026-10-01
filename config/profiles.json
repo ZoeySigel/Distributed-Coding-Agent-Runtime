@@ -1,0 +1,18 @@
+{
+  "default": {
+    "image": "dcar-workspace:0.1.0",
+    "executor": "codex",
+    "model": "gpt-5.3-codex",
+    "cpu": 2,
+    "memory": 4294967296,
+    "pids": 256
+  },
+  "fixture": {
+    "image": "dcar-workspace:0.1.0",
+    "executor": "fixture",
+    "model": "fixture",
+    "cpu": 1,
+    "memory": 1073741824,
+    "pids": 128
+  }
+}

@@ -1,0 +1,19 @@
+services:
+  postgres-test:
+    image: postgres:17.4-bookworm
+    environment: {POSTGRES_USER: test, POSTGRES_PASSWORD: test, POSTGRES_DB: test}
+    tmpfs: ["/var/lib/postgresql/data"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U test"]
+      interval: 2s
+      retries: 30
+  tests:
+    image: golang:1.24.13-bookworm
+    working_dir: /src
+    volumes: ["../:/src"]
+    environment:
+      TEST_DATABASE_URL: postgres://test:test@postgres-test:5432/test?sslmode=disable
+      GOCACHE: /tmp/go-build
+    command: [sh, -c, "go test -race ./... && go vet ./..."]
+    depends_on:
+      postgres-test: {condition: service_healthy}

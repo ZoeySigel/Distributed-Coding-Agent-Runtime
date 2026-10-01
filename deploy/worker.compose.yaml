@@ -1,0 +1,27 @@
+name: dcar-remote
+# Run once on each independent Linux Docker Engine. CONTROL_URL must be HTTPS.
+services:
+  gateway:
+    image: dcar-services:0.1.0
+    command: [gateway]
+    container_name: dcar-gateway
+    restart: unless-stopped
+    environment:
+      CONTROL_URL: ${CONTROL_URL:?HTTPS control plane URL required}
+      WORKER_TOKEN_FILE: /run/secrets/worker-token
+      MODEL_API_KEY_FILE: /run/secrets/model-key
+    volumes: ["../secrets/worker-token:/run/secrets/worker-token:ro", "../secrets/model-key:/run/secrets/model-key:ro"]
+  worker:
+    image: dcar-services:0.1.0
+    command: [worker]
+    user: "0:0"
+    restart: unless-stopped
+    environment:
+      CONTROL_URL: ${CONTROL_URL:?HTTPS control plane URL required}
+      WORKER_ID: ${WORKER_ID:?unique stable Engine name required}
+      WORKER_CAPACITY: ${WORKER_CAPACITY:-2}
+      WORKER_PROFILES: default,fixture
+      WORKER_TOKEN_FILE: /run/secrets/worker-token
+      GATEWAY_CONTAINER: dcar-gateway
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock", "../secrets/worker-token:/run/secrets/worker-token:ro"]
+    depends_on: [gateway]

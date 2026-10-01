@@ -1,0 +1,37 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.4-bookworm
+        env: {POSTGRES_USER: test, POSTGRES_PASSWORD: test, POSTGRES_DB: test}
+        ports: ["5432:5432"]
+        options: --health-cmd="pg_isready -U test" --health-interval=2s --health-retries=30
+    env:
+      TEST_DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: true}
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: npm install --prefix /tmp/dcar-codex @openai/codex@0.114.0
+      - run: CODEX_CONTRACT_BINARY=/tmp/dcar-codex/node_modules/.bin/codex go test ./internal/runner -run TestPinnedCodexCLIContract -v
+      - run: docker build --target services -t dcar-services:0.1.0 .
+      - run: docker build --target workspace -t dcar-workspace:0.1.0 .
+      - name: Isolated collector test
+        run: docker run --rm -e WORKSPACE_INTEGRATION=1 -v "$PWD:/src:ro" -w /src golang:1.24.13-bookworm go test ./internal/runner -run TestCollectIgnoresAgentGitHistory -v
+      - run: sh scripts/bootstrap.sh
+      - run: docker compose up -d
+      - name: Wait for readiness
+        run: for i in $(seq 1 60); do curl -fsS http://localhost:8080/readyz && exit 0; sleep 2; done; exit 1
+      - name: Fixture pipeline
+        run: E2E_TOKEN=$(python3 -c 'import json; print(json.load(open("secrets/api-tokens.json"))["local"])') E2E_URL=http://localhost:8080 E2E_DOCKER_FAILURES=1 go test ./integration -v -timeout 15m
+      - if: failure()
+        run: docker compose logs --tail 100
+      - if: always()
+        run: docker compose down -v
