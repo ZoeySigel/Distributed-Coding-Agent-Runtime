@@ -49,7 +49,7 @@ services:
       CONTROL_URL: http://api:8080
       WORKER_TOKEN_FILE: /run/secrets/worker-token
       MODEL_API_KEY_FILE: /run/secrets/model-key
-      MODEL_UPSTREAM: ${MODEL_UPSTREAM:-https://api.openai.com/v1}
+      MODEL_UPSTREAM: ${MODEL_UPSTREAM:-https://open.bigmodel.cn/api/v1}
     volumes: ["./secrets/worker-token:/run/secrets/worker-token:ro", "./secrets/model-key:/run/secrets/model-key:ro"]
     networks: [backend, outbound]
     depends_on: [api]

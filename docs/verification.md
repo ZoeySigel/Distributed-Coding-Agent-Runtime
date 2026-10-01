@@ -23,7 +23,8 @@
 | GitHub Actions 默认部署 | [CI 36833979158](https://github.com/ZoeySigel/Distributed-Coding-Agent-Runtime/actions/runs/36833979158)，commit `2700e00`：Linux race、真实 PostgreSQL 17.4、vet、Codex CLI 契约、services/workspace 生产镜像、固定源码 MinIO、收集器、默认 Compose readiness 和真实 Docker 确定性 E2E 全部通过；启用 Worker/Workspace/网络/对象存储故障测试；真实模型冒烟未启用 |
 | 终端客户端 | Windows 原生 PTY 实际启动、新建任务页面和 Ctrl+C 恢复终端；HTTP 测试服务验证幂等重发、SSE 终态、过期响应隔离、确认操作、日志限额与控制字符过滤、密码遮罩、70×20 至 140×45 布局；race、vet、Windows/Linux CLI 编译通过。HTTP 测试服务不替代真实 Docker 流水线或跨机验收 |
 | 工作目录启动 | 独立客户端配置不保存 token 值；真实 Git 验证 GitHub HTTPS/SSH origin、固定 HEAD 和未提交文件提示，换目录后配置与鉴权仍可加载；非 GitHub origin 不自动填入。实际运行 Windows 安装脚本，验证用户 PATH 注册，在不同工作目录通过 `dcar` 启动 PTY、自动填入 origin，Ctrl+C 恢复终端；本次启动时 18180 后端未运行，连接失败明确显示 |
-| BigModel 配置兼容性 | 真 Codex 0.114.0 Windows 与无外网 Linux Workspace，使用 GLM 模型目录与本地 Responses SSE 验证 glm-5.3 请求和完成事件；官方示例的 max 无法被固定 CLI 解析，改为 high 后通过。没有智谱真实模型调用，不证明套餐权限或模型服务兼容性的完整验收 |
+| BigModel 配置兼容性 | 真 Codex 0.114.0 Windows 与无外网 Linux Workspace，使用 GLM 模型目录与本地 Responses SSE 验证 glm-5.3 请求和完成事件；官方示例的 max 无法被固定 CLI 解析，改为 high 后通过 |
+| BigModel 普通按量 API 真实冒烟 | 本地生产 Compose、真实密钥、原生 Responses 上游 `https://open.bigmodel.cn/api/v1`、glm-5.3、Codex 0.114.0；任务 `13aacc39b71716500e5ca01ea4415f31` 在真实 Docker Workspace 中 clone octocat/Hello-World、创建 dcar-smoke.txt、平台独立测试通过、归档成功，约 22 秒；TestLiveCodexSmoke 通过并下载校验补丁。只证明该账号和此最小任务，不代表所有 Responses 能力或其他账号权限 |
 
 Docker Engine ID 为 `d4dc22f2-d748-4a19-bc81-9759fd295173`，这是一个独立 Engine。不能用它的多容器执行结果宣称跨机验收完成。
 
@@ -39,7 +40,7 @@ Docker Engine ID 为 `d4dc22f2-d748-4a19-bc81-9759fd295173`，这是一个独立
 
 ## 尚未完成的环境验收
 
-- 配置真实模型密钥后的 Codex 冒烟测试：没有提供真实凭据，测试明确 SKIP。
+- BigModel 普通按量 API 的最小 Codex 冒烟已通过；其他供应商、私有仓库及复杂真实项目的模型执行尚未验收。
 - 私有 GitHub 仓库的真实 clone：没有提供私有仓库与只读凭据；实现临时 askpass、输入删除与日志脱敏，尚未完成真实凭据验收。
 - 两个独立 Linux Docker Engine 的任务分配、故障后跨机重试和 Engine 重启：目前只有一个 Engine。步骤见 operations.md；本次没有重启包含其他用户服务的 Docker Engine。
 - 7/30 天保留策略的长时间 soak、主机磁盘配额与负载测试：尚未运行。
@@ -48,4 +49,4 @@ Docker Engine ID 为 `d4dc22f2-d748-4a19-bc81-9759fd295173`，这是一个独立
 
 正常网络下按 README 启动默认平台，设置 `TEST_DATABASE_URL` 运行数据库测试。设置 `E2E_URL`、`E2E_TOKEN` 运行容器测试；专属测试平台再设置 `E2E_DOCKER_FAILURES=1`。需要运行真实模型时明确设置 `E2E_CODEX=1` 并配置 key。
 
-本次测试用 Token 与仓库配置在忽略的 secrets/，未写入源码。Windows CLI 位于 bin/dcar.exe。测试平台与 portable PostgreSQL 在验证结束后停止；数据卷保留，未清理其他用户资源。
+本次测试用 Token 与仓库配置在忽略的 secrets/，未写入源码。Windows CLI 位于 bin/dcar.exe。早期测试平台与 portable PostgreSQL 已停止；当前本地生产 Compose 项目 dcar-local 保持运行，API 位于 localhost:18180，默认使用 BigModel。数据卷保留，未清理其他用户资源。

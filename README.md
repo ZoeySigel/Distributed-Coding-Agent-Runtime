@@ -28,11 +28,11 @@ export DCAR_TOKEN="$(python3 -c 'import json; print(json.load(open("secrets/api-
 
 将自己的模型 API key 写入 `secrets/model-key`，在 `config/profiles.json` 中配置有权限使用的模型，然后重启 gateway。空 key 可以运行 fixture 测试，不能运行真实 Codex。模型 key 不进入 Workspace；代理根据有效租约和 profile 限定模型请求。
 
-### 智谱 BigModel / GLM Coding Plan
+### 智谱 BigModel 普通按量付费 API
 
-智谱官方 Codex 接入文档使用原生 Responses 接口 `https://open.bigmodel.cn/api/v1`，并通过模型目录声明 `glm-5.3`。参见 [官方接入文档](https://docs.bigmodel.cn/cn/coding-plan/tool/codex)。这是编程套餐的接入配置；普通按量付费 API 的权限与接口不能由此推定。
+当前默认 profile 使用 `glm-5.3`。智谱普通模型 API 提供原生 Responses 接口，base URL 为 `https://open.bigmodel.cn/api/v1`，实际请求路径为 `/responses`。参见 [官方 Responses 文档](https://docs.bigmodel.cn/cn/guide/develop/responses/introduction)。不要填入 Chat Completions 的 `/api/paas/v4` 地址。
 
-确认使用 GLM Coding Plan 后，将 `config/profiles.bigmodel.example.json` 复制为 `config/profiles.json`，把对应套餐 API key 写入 `secrets/model-key`，在 `.env` 中加入：
+将普通按量付费 API key 写入 `secrets/model-key`，在 `.env` 中加入以下配置；已有部署可将 `config/profiles.bigmodel.example.json` 复制为 `config/profiles.json`：
 
 ```dotenv
 MODEL_UPSTREAM=https://open.bigmodel.cn/api/v1
@@ -45,7 +45,9 @@ docker compose -p dcar-local --profile build build --build-arg BASE_REGISTRY=mir
 docker compose -p dcar-local up -d --no-build --force-recreate api gateway worker
 ```
 
-Workspace 内的模型目录固定在 `/etc/dcar/codex-bigmodel-models.json`，由 profile 的 `model_catalog` 引用；不会写入或复用开发者桌面的 Codex 登录配置。为兼容固定 Codex 0.114.0，目录默认使用 `high`，未照搬当前官方示例中该 CLI 无法解析的 `max`。切换回 OpenAI 时恢复原 profile 和 `MODEL_UPSTREAM` 后重建相应容器。目前每套部署共用一个上游与一个长期模型密钥，不能同时将不同供应商的 profile 混用。无真实套餐密钥时只能验证 CLI 与本地 Responses 的协议契约，不能宣称 BigModel 模型调用成功。
+Workspace 内的模型目录固定在 `/etc/dcar/codex-bigmodel-models.json`，由 profile 的 `model_catalog` 引用；不会写入或复用开发者桌面的 Codex 登录配置。为兼容固定 Codex 0.114.0，目录默认使用 `high`，未照搬当前官方示例中该 CLI 无法解析的 `max`。切换到 OpenAI 时需同时更换模型、移除 `model_catalog`、恢复上游地址及更换密钥，再重建相应容器。目前每套部署共用一个上游与一个长期模型密钥，不能同时将不同供应商的 profile 混用。无真实密钥时只能验证 CLI 与本地 Responses 的协议契约，不能宣称 BigModel 模型调用成功。
+
+账号限制：智谱 [GLM-5.3 文档](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3) 当前说明，曾订阅 GLM Coding Plan（含已过期）的账号暂时只能通过 Chat Completions 调用普通模型 API。此类账号不能直接使用本项目的原生 Responses 配置，需等待供应商开放权限或另行适配执行器。
 
 API 默认绑定 `127.0.0.1:8080`。检查 `GET /readyz`，并查看 `docker compose logs worker`。默认镜像含 Node.js、Go、Python、pytest、Git、ripgrep 和固定版本 Codex CLI。自定义工具链通过服务端 profile 镜像提供。
 

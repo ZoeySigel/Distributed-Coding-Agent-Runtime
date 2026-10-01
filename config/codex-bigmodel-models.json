@@ -3,7 +3,7 @@
     {
       "slug": "glm-5.3",
       "display_name": "glm-5.3",
-      "description": "BigModel GLM Coding Plan",
+      "description": "BigModel GLM Responses API",
       "default_reasoning_level": "high",
       "supported_reasoning_levels": [
         {"effort": "low", "description": "Light reasoning"},
