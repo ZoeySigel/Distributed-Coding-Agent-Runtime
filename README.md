@@ -44,6 +44,41 @@ docker build --build-arg BASE_REGISTRY=mirror.gcr.io/library -f deploy/minio.Doc
 
 ## 提交和获取结果
 
+### 终端交互界面
+
+后端按上面的 Compose 步骤启动后，在项目目录用一条命令进入全屏 TUI：
+
+```sh
+go run ./cmd/dcar
+```
+
+已编译的 Windows 客户端运行 `./bin/dcar.exe`；将二进制加入 PATH 后直接运行 `dcar`。显式子命令 `dcar ui` / `dcar tui` 也可用。界面支持 Windows Terminal、PowerShell、Linux 和 macOS 的交互终端，最低尺寸 70×20，建议 100×32。
+
+默认连接 `http://localhost:8080`。优先使用 `DCAR_TOKEN` / `DCAR_TOKEN_FILE`；未设置时自动读取当前目录 `secrets/api-tokens.json` 的 `local` token，没有 token 时进入连接页面。连接页面可输入 API URL 和密码遮罩的 token，仅保存在内存。远端示例：
+
+```sh
+dcar ui --url https://runtime.example.com --repo https://github.com/your-org/your-repo
+```
+
+| 按键 | 操作 |
+|---|---|
+| `n` | 新建任务；填仓库和自然语言任务 |
+| `Tab` / `Shift+Tab` | 表单切换字段；首页切换详情、实时日志、控制面报告 |
+| `Ctrl+S` | 提交任务；网络失败后重发相同幂等请求 |
+| `↑` / `↓` 或 `j` / `k` | 选择任务 |
+| `PgUp` / `PgDn`，`Home` / `End` | 滚动面板；`End` 恢复跟随日志尾部 |
+| `c` / `r` | 取消 / 创建关联重试任务，操作前确认 |
+| `d` | 下载补丁、报告和日志，校验 SHA-256，不覆盖文件 |
+| `[` / `]` | 每页 50 条的上一页 / 下一页 |
+| `s` / `Ctrl+R` | 修改连接 / 刷新并重连事件流 |
+| `?` / `q` | 快捷键帮助 / 退出 |
+
+新建任务的可选字段包括 ref、profile、准备命令、测试命令、私有仓库凭据引用和超时；`--file task.json` 可预填完整表单。任务列表每 3 秒刷新，日志通过可重连 SSE 获取。显示保留最近 500 个事件、最多 512 KiB，并标明截断；完整保留范围的执行日志通过下载查看。
+
+提交结果不确定时会锁定当前请求，`Ctrl+S` 复用原 key 和内容，避免响应丢失产生重复任务；key 显示在提交页面。未决请求仅保存在当前会话，退出前应记录 key 并查询任务列表。退出界面会停止本地连接，远程任务继续运行；取消任务请使用 `c`。UI 不会自动启动 Docker 服务，也不会在本机执行仓库代码。原有 CLI 子命令及 JSON 输出仍可用于脚本。
+
+### 脚本命令
+
 ```sh
 dcar submit --repo https://github.com/your-org/your-repo --prompt "Fix the failing parser tests" --prepare "npm ci" --key parser-fix-001 --json
 dcar status --id TASK_ID

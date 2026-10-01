@@ -61,3 +61,9 @@ Workspace 使用非 root、capabilities 全移除、no-new-privileges、只读�
 依赖访问经 allowlist 代理，解析出的所有地址必须是公开 IP，再连接已检查的 IP，避免 DNS 复绑定。只允许 HTTP/HTTPS 端口。Workspace Token 可被仓库代码读取，但没有控制面写入、GitHub 或 S3 权限；它仍可能被用于当前 attempt 的模型请求，因此只适合内部受信使用者。长期凭据留在可信服务中。
 
 默认容器镜像标签固定；正式部署应把 profile image 改为经过验证的 digest。容器不是恶意多租户的完整安全边界。磁盘配额、TLS、数据库备份、对象存储冗余及集群级容量管理属于部署要求。
+
+## 终端客户端
+
+`internal/tui` 使用固定版本的 Bubble Tea、Bubbles 和 Lip Gloss，为现有 REST/SSE 提供界面，不引入控制面组件或本机执行器。网络操作通过异步 command 返回消息；任务选择的 generation 和 API 客户端身份过滤过期响应，切换任务、连接或退出时撤销旧 SSE。事件队列有容量上限并批量刷新，展示日志有独立的字节与事件数上限；过滤来自仓库的 ANSI/OSC 控制序列，避免日志操纵终端。
+
+提交保留冻结 spec 与幂等 key，直到取得确定响应；临时错误重试复用它们。手动 retry 对每个原任务保留 key。客户端会话不作为持久化工作流，因此退出不会取消服务器任务，未决 key 需要用户记录后核对。`internal/client` 提供共享的产物下载与校验，TUI 与脚本 CLI 使用相同鉴权和完整性边界。
