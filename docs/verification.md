@@ -33,7 +33,7 @@ Docker Engine ID 为 `d4dc22f2-d748-4a19-bc81-9759fd295173`，这是一个独立
 
 ## 尚未完成的环境验收
 
-- 默认生产 Dockerfile 的完整构建，以及默认 MinIO 镜像的完整 E2E：镜像源网络阻塞；提供 CI 流程，但未宣称 CI 已执行。
+- GitHub Actions 首次运行已通过 Linux race、vet、Codex 契约、services/workspace 生产镜像构建和收集器测试；Compose 因官方 MinIO 镜像不可拉取而失败，完整 E2E 尚未通过。改为固定源码构建 MinIO 后等待新 CI 实测，不能将首次构建成功记为完整流水线成功。
 - 配置真实模型密钥后的 Codex 冒烟测试：没有提供真实凭据，测试明确 SKIP。
 - 私有 GitHub 仓库的真实 clone：没有提供私有仓库与只读凭据；实现临时 askpass、输入删除与日志脱敏，尚未完成真实凭据验收。
 - 两个独立 Linux Docker Engine 的任务分配、故障后跨机重试和 Engine 重启：目前只有一个 Engine。步骤见 operations.md；本次没有重启包含其他用户服务的 Docker Engine。

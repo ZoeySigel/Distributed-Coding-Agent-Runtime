@@ -37,9 +37,10 @@ API 默认绑定 `127.0.0.1:8080`。检查 `GET /readyz`，并查看 `docker com
 ```sh
 docker build --build-arg BASE_REGISTRY=mirror.gcr.io/library --target services -t dcar-services:0.1.0 .
 docker build --build-arg BASE_REGISTRY=mirror.gcr.io/library --target workspace -t dcar-workspace:0.1.0 .
+docker build --build-arg BASE_REGISTRY=mirror.gcr.io/library -f deploy/minio.Dockerfile -t dcar-minio:RELEASE.2025-04-22T22-12-26Z .
 ```
 
-启动前确保 PostgreSQL 和 MinIO 镜像也可拉取。可通过 Compose override 改变其镜像源；不要在不同架构 Worker 上复用不兼容镜像。
+启动前确保 PostgreSQL 镜像可拉取。MinIO 官方已改为源码分发，默认通过 `deploy/minio.Dockerfile` 从固定上游 commit 构建，保留 LICENSE 与 NOTICE；构建需要访问 Go 模块代理。可通过 Compose override 改变镜像源；不要在不同架构 Worker 上复用不兼容镜像。
 
 ## 提交和获取结果
 

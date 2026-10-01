@@ -2,7 +2,7 @@
 
 ## 本机启动
 
-首次使用 bootstrap 创建 `.env` 和 `secrets`，文件不会被提交到仓库。`docker compose --profile build build` 会构建 services 与 workspace 两个镜像；仅执行 `compose up --build` 不会构建 build profile 的 Workspace。之后 `docker compose up -d`。
+首次使用 bootstrap 创建 `.env` 和 `secrets`，文件不会被提交到仓库。`docker compose --profile build build` 会构建 services、workspace 与固定源码版本的 MinIO 三个镜像；仅执行 `compose up --build` 不会构建 build profile 的 Workspace。之后 `docker compose up -d`。MinIO 使用本地 `dcar-minio` 镜像，避免依赖已不可拉取的官方 Docker Hub 镜像。
 
 API 需要 PostgreSQL 和 S3 可连接；MinIO 尚未启动时 API 会退出，由 restart policy 重试。Worker 注册后不会预取超出容量的任务。增加单机并发使用 `WORKER_CAPACITY`，不要用 `compose --scale worker` 启动多个相同 Worker ID 的进程。
 
