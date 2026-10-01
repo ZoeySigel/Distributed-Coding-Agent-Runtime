@@ -43,7 +43,11 @@ func main() {
 func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	c := client.New(config.Env("DCAR_URL", "http://localhost:8080"), config.Secret("DCAR_TOKEN"))
+	settings, e := config.LoadClientSettings()
+	if e != nil {
+		return e
+	}
+	c := client.New(config.Env("DCAR_URL", settings.URL), config.Secret("DCAR_TOKEN"))
 	cmd := "ui"
 	args := os.Args[1:]
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -68,7 +72,7 @@ func run() error {
 	outdir := fs.String("out", "results", "download directory")
 	offset := fs.Int("offset", 0, "list offset")
 	limit := fs.Int("limit", 50, "list page size (1..100)")
-	tokenFile := fs.String("token-file", "secrets/api-tokens.json", "UI local token JSON (reads local entry when DCAR_TOKEN is unset)")
+	tokenFile := fs.String("token-file", settings.TokenFile, "API token JSON path (local entry; environment token takes precedence)")
 	apiURL := fs.String("url", c.URL, "API endpoint")
 	if e := fs.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
@@ -81,6 +85,21 @@ func run() error {
 	}
 	var out any
 	c.URL = strings.TrimRight(*apiURL, "/")
+	if cmd == "configure" {
+		path, e := config.SaveClientSettings(config.ClientSettings{URL: *apiURL, TokenFile: *tokenFile})
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"config": path})
+	}
+	if c.Token == "" {
+		token, e := config.ReadClientToken(*tokenFile)
+		if e == nil {
+			c.Token = token
+		} else if !errors.Is(e, os.ErrNotExist) {
+			return e
+		}
+	}
 	if *id != "" {
 		if len(*id) != 32 || strings.ContainsAny(*id, "/\\?#") {
 			return &exitError{2, "invalid task id"}
@@ -97,7 +116,16 @@ func run() error {
 				return e
 			}
 		}
-		return tui.Run(ctx, c, tui.Options{Spec: s, TokenFile: *tokenFile, Output: *outdir})
+		note := ""
+		if s.Repository == "" {
+			repository, sha, detected := config.GitHubWorkingRepository(ctx)
+			s.Repository = repository
+			if s.Ref == "" {
+				s.Ref = sha
+			}
+			note = detected
+		}
+		return tui.Run(ctx, c, tui.Options{Spec: s, TokenFile: *tokenFile, Output: *outdir, Note: note})
 	case "submit":
 		s := domain.Spec{Repository: *repo, Prompt: *prompt, Ref: *ref, Profile: *profile, TestCommand: *test, PrepareCommand: *prepare, CredentialRef: *credential, TimeoutSeconds: *timeout, TestTimeoutSeconds: *testTimeout}
 		if *file != "" {

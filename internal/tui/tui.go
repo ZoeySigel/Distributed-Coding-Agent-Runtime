@@ -30,6 +30,7 @@ import (
 type Options struct {
 	Spec              domain.Spec
 	TokenFile, Output string
+	Note              string
 }
 
 func Run(ctx context.Context, c *client.Client, opts Options) error {
@@ -153,6 +154,7 @@ func newModel(ctx context.Context, c *client.Client, opts Options) *model {
 		s.TimeoutSeconds = 3600
 	}
 	m := &model{ctx: ctx, client: c, opts: opts, width: 100, height: 32, page: "dashboard", viewport: viewport.New(60, 20), retryKeys: map[string]string{}}
+	m.notice = opts.Note
 	m.fields = []textinput.Model{input(s.Repository), input(s.Ref), input(s.Profile), input(s.PrepareCommand), input(s.TestCommand), input(s.CredentialRef), input(strconv.Itoa(s.TimeoutSeconds)), input(strconv.Itoa(s.TestTimeoutSeconds))}
 	m.prompt = textarea.New()
 	m.prompt.SetValue(s.Prompt)

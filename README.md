@@ -46,6 +46,22 @@ docker build --build-arg BASE_REGISTRY=mirror.gcr.io/library -f deploy/minio.Doc
 
 ### 终端交互界面
 
+如果希望在任意工作目录直接输入 `dcar`，先在本项目执行一次安装（以下示例后端端口为 18180）：
+
+```powershell
+./scripts/install.ps1 -ApiUrl http://localhost:18180
+```
+
+安装将客户端放入 `%LOCALAPPDATA%/dcar/bin`，加入用户 PATH，并在 `%APPDATA%/dcar/client.json` 保存 API 地址与 token 文件的绝对路径，不复制 token 内容。之后打开新的 PowerShell，在任意 GitHub 仓库目录输入：
+
+```powershell
+dcar
+```
+
+Linux/macOS 使用 `DCAR_URL=http://localhost:8080 sh scripts/install.sh`，并将 `~/.local/bin` 加入 PATH。已有可执行文件也能通过 `dcar configure --url URL --token-file /absolute/path/api-tokens.json` 设置连接；`DCAR_CONFIG` 可指定独立配置文件。命令行参数优先于地址配置，`DCAR_URL` 优先于配置中的地址；`DCAR_TOKEN` / `DCAR_TOKEN_FILE` 优先于配置引用的 token。
+
+界面会读取当前目录 Git 仓库的 `origin`（支持 GitHub SSH/HTTPS），预填仓库和当前 HEAD SHA；没有 GitHub origin 时可手动填写。任务仍在后端 Docker Workspace clone 执行，提交前应先 commit、push，本地未提交或未推送的代码不会自动上传。后端 Compose 服务需要保持运行；安装客户端不会启动或部署服务器。
+
 后端按上面的 Compose 步骤启动后，在项目目录用一条命令进入全屏 TUI：
 
 ```sh
