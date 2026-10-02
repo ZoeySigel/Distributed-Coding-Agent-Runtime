@@ -55,7 +55,7 @@ func Run(ctx context.Context, c *client.Client, opts Options) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	m := newModel(ctx, c, opts)
-	_, err := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen()).Run()
+	_, err := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
 		return nil
 	}
@@ -118,6 +118,7 @@ type model struct {
 	logs                    []string
 	logBytes                int
 	truncated               bool
+	followLogs              bool
 	cursor                  int64
 	generation              int
 	stopStream              context.CancelFunc
@@ -153,7 +154,7 @@ func newModel(ctx context.Context, c *client.Client, opts Options) *model {
 	if s.TimeoutSeconds == 0 {
 		s.TimeoutSeconds = 3600
 	}
-	m := &model{ctx: ctx, client: c, opts: opts, width: 100, height: 32, page: "dashboard", viewport: viewport.New(60, 20), retryKeys: map[string]string{}}
+	m := &model{ctx: ctx, client: c, opts: opts, width: 100, height: 32, page: "dashboard", viewport: viewport.New(60, 20), followLogs: true, retryKeys: map[string]string{}}
 	m.notice = opts.Note
 	m.fields = []textinput.Model{input(s.Repository), input(s.Ref), input(s.Profile), input(s.PrepareCommand), input(s.TestCommand), input(s.CredentialRef), input(strconv.Itoa(s.TimeoutSeconds)), input(strconv.Itoa(s.TestTimeoutSeconds))}
 	m.prompt = textarea.New()
@@ -238,6 +239,7 @@ func (m *model) selectTask(index int) tea.Cmd {
 	m.logs = nil
 	m.logBytes = 0
 	m.truncated = false
+	m.followLogs = true
 	m.cursor = 0
 	m.report = ""
 	m.viewport.GotoTop()
@@ -507,10 +509,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = 0
 			m.focusForm()
 			return m, textinput.Blink
-		case "j", "down":
+		case "j":
 			return m, m.selectTask(m.selected + 1)
-		case "k", "up":
+		case "k":
 			return m, m.selectTask(m.selected - 1)
+		case "down", "up":
+			if m.tab == 0 {
+				if key == "down" {
+					return m, m.selectTask(m.selected + 1)
+				}
+				return m, m.selectTask(m.selected - 1)
+			}
 		case "]", "[":
 			if key == "]" && len(m.tasks) < 50 {
 				return m, nil
@@ -555,15 +564,31 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.action("download")
 			}
 		case "end":
+			m.followLogs = true
 			m.viewport.GotoBottom()
 			return m, nil
 		case "home":
+			m.followLogs = false
 			m.viewport.GotoTop()
 			return m, nil
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		if key == "up" || key == "down" || key == "pgup" || key == "pgdown" || key == "ctrl+u" || key == "ctrl+d" || key == " " || key == "f" || key == "b" || key == "u" {
+			m.followLogs = m.viewport.AtBottom() && key != "up" && key != "pgup" && key != "ctrl+u" && key != "b" && key != "u"
+		}
 		return m, cmd
+	case tea.MouseMsg:
+		if m.page == "dashboard" && !m.help && m.confirm == "" && msg.X >= 32 {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			if msg.Button == tea.MouseButtonWheelUp {
+				m.followLogs = false
+			} else if msg.Button == tea.MouseButtonWheelDown {
+				m.followLogs = m.viewport.AtBottom()
+			}
+			return m, cmd
+		}
 	}
 	// Cursor blink/paste messages must reach the focused component too.
 	if m.page == "compose" && m.pending == nil {
@@ -782,7 +807,6 @@ func (m *model) resize() {
 	m.prompt.SetWidth(max(20, m.width-8))
 }
 func (m *model) content() {
-	bottom := m.viewport.AtBottom()
 	var text string
 	switch m.tab {
 	case 1:
@@ -804,6 +828,9 @@ func (m *model) content() {
 			text = "No task selected.\n\nPress n to describe a new coding task."
 		} else {
 			text = fmt.Sprintf("%s\n%s\n\n%s\n\nStatus     %s\nStage      %s\nDeadline   %s\nBaseline   %s\n\n%s", t.ID, clean(t.Spec.Repository), clean(t.Spec.Prompt), t.Status, t.Stage, t.Deadline.Local().Format(time.RFC3339), t.SHA, clean(t.Error))
+			if strings.HasPrefix(t.Error, "verification_unavailable:") {
+				text += "\n\nChanges may be available, but no verification command was detected.\nPress d to download the patch and report. Submit a new task with an explicit test/check command; retry keeps the original configuration. A build check does not replace functional tests."
+			}
 			for _, a := range m.current.Attempts {
 				text += fmt.Sprintf("\n\nAttempt %d · %s · %s\nWorker %s\n%s", a.Fence, a.Status, a.Stage, clean(a.WorkerID), clean(a.Error))
 				if v := a.Verification; v != nil {
@@ -820,7 +847,7 @@ func (m *model) content() {
 	}
 	text = lipgloss.NewStyle().Width(m.viewport.Width).Render(text)
 	m.viewport.SetContent(text)
-	if bottom && m.tab == 1 {
+	if m.followLogs && m.tab == 1 {
 		m.viewport.GotoBottom()
 	}
 }
@@ -866,7 +893,8 @@ func (m *model) View() string {
 	if m.help {
 		return header + "\n\n" + accent.Render("Keyboard shortcuts") + "\n\n" + strings.Join([]string{
 			"n                Create a task",
-			"↑ / ↓ or j / k   Select a task",
+			"j / k            Select a task (↑ / ↓ in details)",
+			"↑ / ↓ / wheel    Scroll logs or report",
 			"Tab              Details → live logs → report",
 			"PgUp / PgDn      Scroll the active panel",
 			"End / Home       Follow log tail / jump to top",
@@ -894,7 +922,14 @@ func (m *model) View() string {
 		left += "\n" + row
 	}
 	pane := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1)
-	tabs := []string{"DETAILS", "LIVE LOGS", "REPORT"}
+	tabs := []string{"DETAILS", "LOGS", "REPORT"}
+	if m.tab == 1 {
+		if m.followLogs {
+			tabs[1] += " (tail)"
+		} else {
+			tabs[1] += fmt.Sprintf(" (%.0f%%)", m.viewport.ScrollPercent()*100)
+		}
+	}
 	for i := range tabs {
 		if i == m.tab {
 			tabs[i] = accent.Render(tabs[i])
@@ -905,6 +940,9 @@ func (m *model) View() string {
 	right := strings.Join(tabs, "  ") + "\n" + m.viewport.View()
 	main := lipgloss.JoinHorizontal(lipgloss.Top, pane.Width(28).Height(m.viewport.Height+1).Render(left), pane.Width(m.viewport.Width).Render(right))
 	help := "n new · ↑↓ tasks · Tab panel · c cancel · r retry · d download · ? help · q quit"
+	if m.tab != 0 {
+		help = "↑↓ / wheel scroll · PgUp/PgDn · End tail · j/k tasks · Tab panel · ? help · q quit"
+	}
 	if m.confirm != "" {
 		help = "Confirm " + m.confirm + " for " + m.selectedID() + "?  y / Enter confirm · n / Esc back"
 	}

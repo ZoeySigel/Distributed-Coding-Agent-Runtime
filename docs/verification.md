@@ -2,6 +2,12 @@
 
 记录日期：2026-10-01。没有将模拟 Worker 结果作为 Docker 或跨机验收。
 
+2026-10-02 排障：日志页上下键被任务列表截获，鼠标事件未启用/转发；已修复日志与报告滚动、鼠标位置限制、暂停/恢复跟随，Windows 客户端已重新编译安装。对应回归和全包 race/vet 通过。Docker 重启后数据库与对象存储停止，恢复生产服务并添加 unless-stopped。任务 `7592950e02e3f94c4889f30ccc9ba457` 初次遇到 HTTP 429 后自动重试，最终由用户取消；原始日志未区分供应商与网关限流，不将其归因于供应商配额。已分离每 attempt 的模型请求（4）和出口连接（32）限额，避免依赖下载争用模型额度，并增加限流来源日志。
+
+任务 `80665406d37334f0039e6a41c223de6a` 完成代码修改，但根 package.json 只有 serve/build/lint、无 test，终态 verification_unavailable；23,953 字节补丁及报告、日志已下载并通过 SHA-256 校验。原始锁文件 916 个下载 URL 来自 registry.npmmirror.com，此前被受控出口拒绝；现允许该域名及 cdn.npmmirror.com。实际验收使用数据库有效租约、真实网关、无直连出口的独立 Docker 网络、非 root 只读 Workspace，从官方及镜像源分别 npm pack vue@2.6.14 成功，清理诊断网络并恢复 Worker。它不代表原任务修改已通过构建或功能测试；未重新调用付费模型。
+
+部署最新修复后，使用 `go test ./integration -count=1 -run '^TestFixtureSuccessAndArtifacts$' -v -timeout 6m` 禁用缓存，真实 Docker 端到端任务 `ee022f709c14ab428cdec730612e6f3e` 成功，约 8 秒；覆盖 GitHub clone、独立 Workspace、平台测试、产物归档和下载校验。此次未使用 mock 替代受控出口或 Docker 验收。
+
 ## 已运行并通过
 
 | 验证 | 实际依赖与范围 |

@@ -33,8 +33,94 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	case "pgup":
+		return tea.KeyMsg{Type: tea.KeyPgUp}
+	case "pgdown":
+		return tea.KeyMsg{Type: tea.KeyPgDown}
+	case "home":
+		return tea.KeyMsg{Type: tea.KeyHome}
+	case "end":
+		return tea.KeyMsg{Type: tea.KeyEnd}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+func TestPanelScrollingAndLiveTail(t *testing.T) {
+	for _, tab := range []int{1, 2} {
+		t.Run(fmt.Sprint(tab), func(t *testing.T) {
+			m := testModel(t, func(w http.ResponseWriter, r *http.Request) {})
+			m.current.Task = domain.Task{ID: "selected", Status: "running"}
+			m.tasks = []domain.Task{m.current.Task, {ID: "other"}}
+			m.tab = tab
+			for i := 0; i < 100; i++ {
+				m.logs = append(m.logs, fmt.Sprintf("line %d", i))
+			}
+			m.report = strings.Join(m.logs, "\n")
+			m.content()
+			m.Update(key("end"))
+			before := m.viewport.YOffset
+			m.Update(key("up"))
+			if m.selectedID() != "selected" || m.viewport.YOffset != before-1 || m.followLogs {
+				t.Fatal("up must scroll the panel and pause following, not change tasks")
+			}
+			before = m.viewport.YOffset
+			m.logs = append(m.logs, "new event")
+			m.content()
+			if m.viewport.YOffset != before {
+				t.Fatal("content refresh discarded manual scroll position")
+			}
+			m.Update(key("pgup"))
+			if m.viewport.YOffset >= before {
+				t.Fatal("page up did not move")
+			}
+			m.Update(key("home"))
+			m.Update(key("down"))
+			if m.viewport.YOffset != 1 {
+				t.Fatal("down did not scroll one line")
+			}
+			m.Update(key("pgdown"))
+			if m.viewport.YOffset <= 1 {
+				t.Fatal("page down did not move")
+			}
+			before = m.viewport.YOffset
+			m.Update(tea.MouseMsg{X: 40, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp})
+			if m.viewport.YOffset >= before || m.followLogs {
+				t.Fatal("wheel did not scroll or pause tail")
+			}
+			before = m.viewport.YOffset
+			m.Update(tea.MouseMsg{X: 5, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+			if m.viewport.YOffset != before {
+				t.Fatal("wheel over task list scrolled the right panel")
+			}
+			m.Update(key("end"))
+			m.logs = append(m.logs, "latest event")
+			m.content()
+			if !m.viewport.AtBottom() || !m.followLogs {
+				t.Fatal("End did not resume tail")
+			}
+			m.Update(key("j"))
+			if m.selectedID() != "other" {
+				t.Fatal("j must still select the next task")
+			}
+		})
+	}
+}
+
+func TestHomePausesTailBeforeLogOverflows(t *testing.T) {
+	m := testModel(t, func(w http.ResponseWriter, r *http.Request) {})
+	m.tab = 1
+	m.logs = []string{"first"}
+	m.content()
+	m.Update(key("home"))
+	m.logs = append(m.logs, strings.Repeat("next\n", 100))
+	m.content()
+	if m.viewport.YOffset != 0 || m.followLogs {
+		t.Fatal("short log at Home started following on overflow")
+	}
 }
 
 func TestSubmissionReusesFrozenRequestAfterLostResponse(t *testing.T) {

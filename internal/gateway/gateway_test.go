@@ -33,6 +33,57 @@ func TestPublicIPAndAllowlist(t *testing.T) {
 		t.Fatal("SSH allowed")
 	}
 }
+
+func TestDefaultDependencyRegistriesRemainBounded(t *testing.T) {
+	g := &Gateway{Hosts: strings.Split(DefaultHosts, ",")}
+	for _, host := range []string{"registry.npmjs.org", "registry.npmmirror.com", "cdn.npmmirror.com"} {
+		if !g.Allowed(host) {
+			t.Fatalf("locked dependency registry denied: %s", host)
+		}
+	}
+	for _, host := range []string{"evil.npmmirror.com", "registry.npmmirror.com.evil", "localhost", "169.254.169.254"} {
+		if g.Allowed(host) {
+			t.Fatalf("unrelated destination allowed: %s", host)
+		}
+	}
+}
+
+func TestDependencyConcurrencyCannotStarveModelRequests(t *testing.T) {
+	g := &Gateway{}
+	var downloads []func()
+	for i := 0; i < 32; i++ {
+		release, ok := g.acquire("attempt", true)
+		if !ok {
+			t.Fatal("dependency capacity exhausted early")
+		}
+		downloads = append(downloads, release)
+	}
+	if _, ok := g.acquire("attempt", true); ok {
+		t.Fatal("unbounded dependency connections")
+	}
+	var models []func()
+	for i := 0; i < 4; i++ {
+		release, ok := g.acquire("attempt", false)
+		if !ok {
+			t.Fatal("dependency downloads starved model requests")
+		}
+		models = append(models, release)
+	}
+	if _, ok := g.acquire("attempt", false); ok {
+		t.Fatal("unbounded model connections")
+	}
+	other, ok := g.acquire("other-attempt", false)
+	if !ok {
+		t.Fatal("one attempt exhausted another attempt's quota")
+	}
+	other()
+	for _, release := range append(downloads, models...) {
+		release()
+	}
+	if len(g.active) != 0 {
+		t.Fatal("finished requests leaked capacity")
+	}
+}
 func TestRevokedLeaseAndModelRestrictions(t *testing.T) {
 	valid := true
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

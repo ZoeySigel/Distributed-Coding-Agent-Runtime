@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/dcar/runtime/internal/client"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,12 +22,42 @@ type Lease struct {
 	Model     string  `json:"model"`
 	Remaining float64 `json:"remaining_seconds"`
 }
+
+const DefaultHosts = "github.com,*.githubusercontent.com,registry.npmjs.org,registry.npmmirror.com,cdn.npmmirror.com,pypi.org,files.pythonhosted.org,proxy.golang.org,sum.golang.org,*.golang.org,storage.googleapis.com"
+
 type Gateway struct {
 	Control          *client.Client
 	APIKey, Upstream string
 	Hosts            []string
 	mu               sync.Mutex
 	active           map[string]int
+}
+
+// Dependency downloads must not consume the model's concurrency budget.
+func (g *Gateway) acquire(attempt string, proxy bool) (func(), bool) {
+	kind, limit := "model", 4
+	if proxy {
+		kind, limit = "egress", 32
+	}
+	key := attempt + ":" + kind
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.active == nil {
+		g.active = map[string]int{}
+	}
+	if g.active[key] >= limit {
+		slog.Warn("attempt concurrency limit reached", "attempt", attempt, "kind", kind, "limit", limit)
+		return nil, false
+	}
+	g.active[key]++
+	return func() {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		g.active[key]--
+		if g.active[key] == 0 {
+			delete(g.active, key)
+		}
+	}, true
 }
 
 func PublicIP(ip net.IP) bool {
@@ -92,25 +123,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(l)
 		return
 	}
-	g.mu.Lock()
-	if g.active == nil {
-		g.active = map[string]int{}
-	}
-	if g.active[l.AttemptID] >= 16 {
-		g.mu.Unlock()
+	release, ok := g.acquire(l.AttemptID, proxy)
+	if !ok {
+		w.Header().Set("Retry-After", "1")
 		w.WriteHeader(429)
 		return
 	}
-	g.active[l.AttemptID]++
-	g.mu.Unlock()
-	defer func() {
-		g.mu.Lock()
-		g.active[l.AttemptID]--
-		if g.active[l.AttemptID] == 0 {
-			delete(g.active, l.AttemptID)
-		}
-		g.mu.Unlock()
-	}()
+	defer release()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go func() {
@@ -189,6 +208,9 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, tr http.RoundT
 		return
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusTooManyRequests {
+		slog.Warn("upstream rate limited", "host", r.URL.Hostname())
+	}
 	for _, h := range []string{"Content-Type", "Retry-After"} {
 		if v := res.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
