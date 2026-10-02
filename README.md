@@ -115,7 +115,9 @@ dcar ui --url https://runtime.example.com --repo https://github.com/your-org/you
 
 向上滚动或按 `Home` 会暂停日志跟随，后台新事件不会把视图拉回底部；`End` 恢复跟随，日志标签显示 `tail` 或当前滚动百分比。鼠标捕获期间，复制文字可使用终端的 Shift+拖选。
 
-没有根目录测试配置的仓库需要显式填写验证命令。只有 `build/lint` 的 Vue 项目可以在准备命令中填写 `npm ci --no-audit --no-fund`，测试命令填写 `npm run build`，将构建作为明确的验证门槛；它不证明交互功能正确。平台不会把构建脚本自动当作测试，也不会将未验证的修改标为成功。`verification_unavailable` 仍可下载已生成的补丁，直接重试会沿用原配置，应新建任务补上验证命令。
+只填写仓库和任务即可使用自动流水线，准备和验证命令默认留空。平台先读取原始配置：Go 下载模块后执行测试；Node 按锁文件安装依赖，优先 test，其次 build/lint；pytest 项目安装已声明依赖后执行测试。无法直接识别时，由隔离的只读 Codex 规划 Agent 分析原始配置、CI 和文档，提出准备命令、验证命令及覆盖类型。平台校验 JSON、命令长度和 shell 语法，拒绝明显无验证意义的建议，在执行前把计划与固定 SHA 持久化。随后自动执行准备、基线验证、代码修改、独立最终验证和最多两轮修复。
+
+例如只有 build/lint 的 Vue 项目会自动选 `npm ci --no-audit --no-fund` 和 `npm run build`，报告注明 `build`，不把它描述成功能测试。手动命令只是可选覆盖。自动重试及关联手动重试沿用已冻结计划；重新规划需要提交新任务。缺少可用工具链、无法提出有效验证或依赖源不可达时，仍会明确失败，不伪造成功；已产生的补丁仍可下载。fixture 执行器不会调用模型规划，适合无密钥的确定性测试。
 
 受控出口默认允许 npm 官方源及 `registry.npmmirror.com` / `cdn.npmmirror.com`，以支持已有锁文件中的镜像 URL。其他依赖镜像需通过 `.env` 的 `EGRESS_HOSTS` 配置完整允许列表，并重建 gateway 容器；只允许公共地址，仍拒绝内网及元数据地址。数据库与对象存储设置 `unless-stopped`，随 Docker 恢复启动；显式停止的服务需要重新执行 Compose up。
 
@@ -150,7 +152,7 @@ dcar download --id TASK_ID --out results/TASK_ID
 }
 ```
 
-省略测试命令时，只识别仓库根目录唯一的 Go 模块、带 test script 的 Node.js 项目、明确配置 pytest 的 Python 项目。多语言、多工作区和没有测试配置的仓库需要显式测试命令；不能确定时返回 `verification_unavailable`。依赖安装通过 `prepare_command` 明确提供，例如 `npm ci` 或 `python3 -m pip install -r requirements.txt`；Python 依赖写入容器的临时用户路径。测试计划在 Agent 修改前冻结，但项目脚本与测试本身仍可能被修改，报告会列出相关文件。
+`prepare_command` 与 `test_command` 都可省略，默认自动规划。Go/Node/pytest 使用原始配置；不明确、多语言或不常见项目交由只读规划 Agent，受整个任务截止时间和单次 180 秒规划上限约束，最多两次输出纠正。Node 支持 npm、Corepack pnpm/yarn；Python 使用隔离 venv。其他语言需要包含相应工具链的执行 profile。测试计划在 Agent 修改前冻结，但项目脚本与测试本身仍可能被修改，报告会列出相关文件；通过验证不是功能正确性的保证。
 
 私有仓库凭据存放于 `secrets/repositories.json`：`{"team-readonly":"YOUR_READ_ONLY_GITHUB_TOKEN"}`，重启 API 加载。提交仅引用名称。凭据只在准备容器使用，Git URL 和配置不会保存 Token。禁止自动 LFS 和 submodule 下载，遇到这些仓库明确失败。
 

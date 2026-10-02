@@ -72,7 +72,8 @@ func pinnedCodexContract(t *testing.T, binary, model string) {
 		}
 	}
 	args := CodexArgs(upstream.URL+"/v1", model, catalog)
-	args = append(args[:len(args)-1], "--skip-git-repo-check", "-")
+	lastMessage := filepath.Join(t.TempDir(), "last-message.txt")
+	args = append(args[:len(args)-1], "--skip-git-repo-check", "--output-last-message", lastMessage, "-")
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = t.TempDir()
 	home := filepath.Join(t.TempDir(), "codex-home")
@@ -86,5 +87,9 @@ func pinnedCodexContract(t *testing.T, binary, model string) {
 	_, _ = stream.Write(out)
 	if e != nil || !stream.Completed || requests.Load() != 1 || !strings.Contains(string(out), "contract ready") {
 		t.Fatalf("pinned CLI contract failed: %v\n%s", e, out)
+	}
+	last, e := os.ReadFile(lastMessage)
+	if e != nil || strings.TrimSpace(string(last)) != "contract ready" {
+		t.Fatalf("planner output channel contract failed: %q %v", last, e)
 	}
 }

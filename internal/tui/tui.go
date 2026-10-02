@@ -134,7 +134,7 @@ type model struct {
 	connectionFocus         int
 }
 
-var fieldLabels = []string{"Repository", "Ref (optional)", "Profile", "Prepare command (optional)", "Test command (blank = detect)", "Credential reference (optional)", "Total timeout / seconds", "Test timeout / seconds (0 = default)"}
+var fieldLabels = []string{"Repository", "Ref (optional)", "Profile", "Prepare command (blank = auto)", "Verification command (blank = auto)", "Credential reference (optional)", "Total timeout / seconds", "Test timeout / seconds (0 = default)"}
 var accent = lipgloss.NewStyle().Foreground(lipgloss.Color("80")).Bold(true)
 var muted = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 var selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("232")).Background(lipgloss.Color("80")).Bold(true)
@@ -829,7 +829,13 @@ func (m *model) content() {
 		} else {
 			text = fmt.Sprintf("%s\n%s\n\n%s\n\nStatus     %s\nStage      %s\nDeadline   %s\nBaseline   %s\n\n%s", t.ID, clean(t.Spec.Repository), clean(t.Spec.Prompt), t.Status, t.Stage, t.Deadline.Local().Format(time.RFC3339), t.SHA, clean(t.Error))
 			if strings.HasPrefix(t.Error, "verification_unavailable:") {
-				text += "\n\nChanges may be available, but no verification command was detected.\nPress d to download the patch and report. Submit a new task with an explicit test/check command; retry keeps the original configuration. A build check does not replace functional tests."
+				text += "\n\nChanges may be available, but meaningful verification was unavailable.\nPress d for the patch and report explaining the limitation. An optional command override or a suitable execution profile can resolve unsupported project configurations."
+			}
+			if t.Plan != nil {
+				text += fmt.Sprintf("\n\nFrozen plan · %s\nCoverage   %s\nPrepare    %s\nVerify     %s\n%s", t.Plan.Source, t.Plan.Kind, clean(t.Plan.PrepareCommand), clean(t.Plan.TestCommand), clean(t.Plan.Rationale))
+				if t.Plan.Kind == "build" || t.Plan.Kind == "lint" || t.Plan.Kind == "static" {
+					text += "\nThis check does not establish functional correctness."
+				}
 			}
 			for _, a := range m.current.Attempts {
 				text += fmt.Sprintf("\n\nAttempt %d · %s · %s\nWorker %s\n%s", a.Fence, a.Status, a.Stage, clean(a.WorkerID), clean(a.Error))
@@ -872,7 +878,7 @@ func (m *model) View() string {
 		// Show a compact basic form, then scroll the optional settings into view with focus.
 		var body string
 		if m.focus <= 1 {
-			body = accent.Render("Repository") + "\n" + m.fields[0].View() + "\n\n" + accent.Render("Describe the coding task") + "\n" + m.prompt.View() + "\n\n" + muted.Render("Tab to optional execution settings; Enter adds a line to the task.")
+			body = accent.Render("Repository") + "\n" + m.fields[0].View() + "\n\n" + accent.Render("Describe the coding task") + "\n" + m.prompt.View() + "\n\n" + muted.Render("Preparation and verification are planned automatically.\nTab for optional overrides; Enter adds a task line.")
 		} else {
 			start := max(1, m.focus-3)
 			end := min(8, start+max(2, (m.height-10)/3))

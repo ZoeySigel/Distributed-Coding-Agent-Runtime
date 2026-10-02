@@ -145,6 +145,24 @@ paths:
       responses:
         '200': {description: Lease deadline and configured TTL; SHA can only be pinned once}
         '409': {$ref: '#/components/responses/Conflict'}
+  /internal/plan:
+    post:
+      security: [{workerAuth: []}]
+      description: Freeze the original-baseline execution plan before repository execution; identical requests are idempotent. Automatic and manual retries reuse the plan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proof, plan]
+              properties:
+                proof: {$ref: '#/components/schemas/Proof'}
+                plan: {$ref: '#/components/schemas/ExecutionPlan'}
+      responses:
+        '200': {description: Frozen plan, content: {application/json: {schema: {$ref: '#/components/schemas/ExecutionPlan'}}}}
+        '400': {description: Invalid execution plan}
+        '409': {$ref: '#/components/responses/Conflict'}
   /internal/lease:
     post:
       security: [{workerAuth: []}]
@@ -245,6 +263,17 @@ components:
         created_at: {type: string, format: date-time}
         deadline: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+        execution_plan: {$ref: '#/components/schemas/ExecutionPlan'}
+    ExecutionPlan:
+      type: object
+      required: [sha, source, prepare_command, test_command, kind, rationale]
+      properties:
+        sha: {type: string, pattern: '^[a-f0-9]{40}$'}
+        source: {type: string, enum: [detected, agent, explicit]}
+        prepare_command: {type: string, maxLength: 8192}
+        test_command: {type: string, maxLength: 8192}
+        kind: {type: string, enum: [tests, build, lint, static, custom, unavailable]}
+        rationale: {type: string, minLength: 1, maxLength: 4096}
     TaskDetail:
       type: object
       properties:
@@ -269,6 +298,7 @@ components:
       type: object
       properties:
         state: {type: string, enum: [passed, failed, not_verified]}
+        kind: {type: string, enum: [tests, build, lint, static, custom, unavailable]}
         baseline: {$ref: '#/components/schemas/TestSummary'}
         tests: {type: array, items: {$ref: '#/components/schemas/TestSummary'}}
         repair_rounds: {type: integer, minimum: 0, maximum: 2}

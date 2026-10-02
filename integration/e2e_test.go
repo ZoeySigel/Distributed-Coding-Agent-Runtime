@@ -41,6 +41,7 @@ func submit(t *testing.T, c *client.Client, prompt, test string) domain.Task {
 func waitTask(t *testing.T, c *client.Client, id string) domain.Task {
 	t.Helper()
 	until := time.Now().Add(320 * time.Second)
+	deadlineLoaded := false
 	for time.Now().Before(until) {
 		var v struct {
 			Task domain.Task `json:"task"`
@@ -50,6 +51,10 @@ func waitTask(t *testing.T, c *client.Client, id string) domain.Task {
 		}
 		if domain.Terminal(v.Task.Status) {
 			return v.Task
+		}
+		if !deadlineLoaded && !v.Task.Deadline.IsZero() {
+			until = v.Task.Deadline.Add(20 * time.Second)
+			deadlineLoaded = true
 		}
 		time.Sleep(time.Second)
 	}

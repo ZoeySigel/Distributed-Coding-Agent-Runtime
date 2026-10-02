@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/dcar/runtime/internal/domain"
 	"io"
 	"io/fs"
 	"os"
@@ -20,22 +21,24 @@ const Marker = "__DCAR_RESULT__"
 const OutputLimit = 1 << 20
 
 type Input struct {
-	Repository   string `json:"repository"`
-	Ref          string `json:"ref"`
-	SHA          string `json:"sha"`
-	Credential   string `json:"credential"`
-	Command      string `json:"command"`
-	Seconds      int    `json:"seconds"`
-	Prompt       string `json:"prompt"`
-	Model        string `json:"model"`
-	ModelCatalog string `json:"model_catalog,omitempty"`
-	Executor     string `json:"executor"`
-	TestCommand  string `json:"test_command"`
+	Repository     string `json:"repository"`
+	Ref            string `json:"ref"`
+	SHA            string `json:"sha"`
+	Credential     string `json:"credential"`
+	Command        string `json:"command"`
+	Seconds        int    `json:"seconds"`
+	Prompt         string `json:"prompt"`
+	Model          string `json:"model"`
+	ModelCatalog   string `json:"model_catalog,omitempty"`
+	Executor       string `json:"executor"`
+	TestCommand    string `json:"test_command"`
+	PrepareCommand string `json:"prepare_command"`
 }
 type Prepared struct {
-	SHA               string `json:"sha"`
-	TestCommand       string `json:"test_command"`
-	VerificationError string `json:"verification_error,omitempty"`
+	SHA               string                `json:"sha"`
+	TestCommand       string                `json:"test_command"`
+	VerificationError string                `json:"verification_error,omitempty"`
+	Plan              *domain.ExecutionPlan `json:"execution_plan,omitempty"`
 }
 type Collected struct {
 	Patch         []byte   `json:"patch"`
@@ -241,10 +244,16 @@ func Prepare(ctx context.Context, in Input) (Prepared, error) {
 	if _, e = run(ctx, "/workspace", []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}, "git", "clone", "--bare", "--no-hardlinks", "/workspace/repo", "/baseline/repo.git"); e != nil {
 		return Prepared{}, e
 	}
-	test, ve := Detect("/workspace/repo", in.TestCommand)
-	p := Prepared{SHA: sha, TestCommand: test}
+	plan, ve := DetectPlan("/workspace/repo", sha, in.PrepareCommand, in.TestCommand)
 	if ve != nil {
-		p.VerificationError = ve.Error()
+		return Prepared{}, ve
+	}
+	if _, e := run(ctx, "/workspace", nil, "/bin/sh", "-n", "-c", plan.PrepareCommand+"\n"+plan.TestCommand); e != nil {
+		return Prepared{}, fmt.Errorf("invalid execution plan syntax: %w", e)
+	}
+	p := Prepared{SHA: sha, TestCommand: plan.TestCommand, Plan: &plan}
+	if plan.Kind == "unavailable" {
+		p.VerificationError = plan.Rationale
 	}
 	return p, nil
 }

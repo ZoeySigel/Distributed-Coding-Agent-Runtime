@@ -41,6 +41,9 @@ type RepositoryProvider interface {
 type TestRunner interface {
 	Test(context.Context, string, runner.Input) (domain.TestResult, error)
 }
+type ExecutionPlanner interface {
+	Plan(context.Context, string, runner.Input) (domain.ExecutionPlan, error)
+}
 type ContainerExecutor struct {
 	Runtime WorkspaceRuntime
 	Observe func(string)
@@ -55,7 +58,7 @@ func (x *ContainerExecutor) invoke(ctx context.Context, id, op string, in runner
 	argv := []string{"/usr/local/bin/dcar-workspace", op, "/run/dcar/" + name}
 	var res docker.Result
 	var e error
-	if native, ok := x.Runtime.(*docker.Engine); ok && op == "agent" && x.Observe != nil {
+	if native, ok := x.Runtime.(*docker.Engine); ok && (op == "agent" || op == "plan") && x.Observe != nil {
 		observer := &lineObserver{emit: x.Observe}
 		res, e = native.ExecObserved(ctx, id, argv, nil, 48<<20, observer.write)
 	} else {
@@ -120,6 +123,11 @@ func (x *ContainerExecutor) Prepare(ctx context.Context, id string, in runner.In
 func (x *ContainerExecutor) Test(ctx context.Context, id string, in runner.Input) (domain.TestResult, error) {
 	var v domain.TestResult
 	e := x.invoke(ctx, id, "shell", in, &v)
+	return v, e
+}
+func (x *ContainerExecutor) Plan(ctx context.Context, id string, in runner.Input) (domain.ExecutionPlan, error) {
+	var v domain.ExecutionPlan
+	e := x.invoke(ctx, id, "plan", in, &v)
 	return v, e
 }
 func redact(s string, secrets ...string) string {
@@ -215,28 +223,30 @@ func proof(l domain.Lease) domain.Proof {
 }
 
 type Report struct {
-	TaskID            string              `json:"task_id"`
-	AttemptID         string              `json:"attempt_id"`
-	Fence             int64               `json:"fence"`
-	SHA               string              `json:"sha"`
-	Image             string              `json:"image"`
-	Executor          string              `json:"executor"`
-	Model             string              `json:"model"`
-	AgentVersion      string              `json:"agent_version"`
-	Status            string              `json:"status"`
-	Error             string              `json:"error,omitempty"`
-	Verification      string              `json:"verification"`
-	Baseline          *domain.TestResult  `json:"baseline,omitempty"`
-	Tests             []domain.TestResult `json:"tests"`
-	RepairRounds      int                 `json:"repair_rounds"`
-	Files             []string            `json:"files"`
-	TestsModified     []string            `json:"tests_modified"`
-	LogTruncated      bool                `json:"log_truncated"`
-	ArtifactsComplete bool                `json:"artifacts_complete"`
-	StartedAt         time.Time           `json:"started_at"`
-	FinishedAt        time.Time           `json:"finished_at"`
-	Note              string              `json:"note"`
-	Attempts          []domain.Attempt    `json:"attempts"`
+	TaskID            string                `json:"task_id"`
+	AttemptID         string                `json:"attempt_id"`
+	Fence             int64                 `json:"fence"`
+	SHA               string                `json:"sha"`
+	Image             string                `json:"image"`
+	Executor          string                `json:"executor"`
+	Model             string                `json:"model"`
+	AgentVersion      string                `json:"agent_version"`
+	Status            string                `json:"status"`
+	Error             string                `json:"error,omitempty"`
+	Verification      string                `json:"verification"`
+	Baseline          *domain.TestResult    `json:"baseline,omitempty"`
+	Tests             []domain.TestResult   `json:"tests"`
+	RepairRounds      int                   `json:"repair_rounds"`
+	Files             []string              `json:"files"`
+	TestsModified     []string              `json:"tests_modified"`
+	LogTruncated      bool                  `json:"log_truncated"`
+	ArtifactsComplete bool                  `json:"artifacts_complete"`
+	StartedAt         time.Time             `json:"started_at"`
+	FinishedAt        time.Time             `json:"finished_at"`
+	Note              string                `json:"note"`
+	Attempts          []domain.Attempt      `json:"attempts"`
+	Plan              *domain.ExecutionPlan `json:"execution_plan,omitempty"`
+	Preparation       *domain.TestResult    `json:"preparation,omitempty"`
 }
 
 func (w *Worker) execute(parent context.Context, a assignment) {
@@ -405,7 +415,7 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 			return e
 		}
 		report.SHA = resolved.SHA
-		prepared, e := exec.Prepare(ctx, prep, runner.Input{Repository: l.Task.Spec.Repository, Ref: l.Task.Spec.Ref, SHA: resolved.SHA, Credential: credential.Token, TestCommand: l.Task.Spec.TestCommand})
+		prepared, e := exec.Prepare(ctx, prep, runner.Input{Repository: l.Task.Spec.Repository, Ref: l.Task.Spec.Ref, SHA: resolved.SHA, Credential: credential.Token, TestCommand: l.Task.Spec.TestCommand, PrepareCommand: l.Task.Spec.PrepareCommand})
 		credential.Token = ""
 		if e != nil {
 			retryable = transient(e)
@@ -422,6 +432,65 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 			return e
 		}
 		containers = containers[1:]
+		plan := prepared.Plan
+		if l.Task.Plan != nil {
+			plan = l.Task.Plan
+		} else if plan != nil && plan.Kind == "unavailable" && a.Profile.Executor == "codex" {
+			emit("planning", "Analyzing original repository in a read-only planning workspace.")
+			planner, err := create("plan", []docker.Mount{{Type: "volume", Source: work, Target: "/workspace", ReadOnly: true}})
+			if err != nil {
+				retryable = true
+				return err
+			}
+			proposal, err := exec.Plan(ctx, planner, runner.Input{SHA: report.SHA, Model: a.Profile.Model, ModelCatalog: a.Profile.ModelCatalog, Seconds: min(180, l.Task.Spec.TestTimeoutSeconds)})
+			stopErr := w.Engine.Stop(ctx, planner)
+			removeErr := w.Engine.Remove(ctx, planner)
+			if removeErr == nil {
+				containers = containers[:len(containers)-1]
+			}
+			if err != nil {
+				retryable = transient(err)
+				return err
+			}
+			if stopErr != nil {
+				return stopErr
+			}
+			if removeErr != nil {
+				return removeErr
+			}
+			if l.Task.Spec.PrepareCommand != "" {
+				proposal.PrepareCommand = l.Task.Spec.PrepareCommand
+				proposal.Source = "explicit"
+				proposal.Rationale += " Preparation command overridden by submitter."
+			}
+			plan = &proposal
+		}
+		if plan == nil {
+			return fmt.Errorf("execution plan missing")
+		}
+		if err := plan.Validate(); err != nil {
+			return err
+		}
+		var frozen domain.ExecutionPlan
+		freezeRequest := struct {
+			Proof domain.Proof         `json:"proof"`
+			Plan  domain.ExecutionPlan `json:"plan"`
+		}{p, *plan}
+		for tries := 0; tries < 3; tries++ {
+			e = w.Control.Do(ctx, "POST", "/internal/plan", freezeRequest, &frozen, nil)
+			if e == nil || !pause(ctx, 200*time.Millisecond) {
+				break
+			}
+		}
+		if e != nil {
+			retryable = transient(e)
+			return e
+		}
+		report.Plan = &frozen
+		prepared.TestCommand = frozen.TestCommand
+		prepared.VerificationError = frozen.Rationale
+		planJSON, _ := json.Marshal(frozen)
+		emit("execution_plan", string(planJSON))
 		agent, e := create("agent", []docker.Mount{{Type: "volume", Source: work, Target: "/workspace"}})
 		if e != nil {
 			retryable = true
@@ -434,13 +503,15 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 		if a.Profile.Executor == "fixture" {
 			report.AgentVersion = "fixture-v1"
 		}
-		if l.Task.Spec.PrepareCommand != "" {
-			result, e := exec.Test(ctx, agent, runner.Input{Command: l.Task.Spec.PrepareCommand, Seconds: l.Task.Spec.TestTimeoutSeconds})
+		if frozen.PrepareCommand != "" {
+			result, e := exec.Test(ctx, agent, runner.Input{Command: frozen.PrepareCommand, Seconds: l.Task.Spec.TestTimeoutSeconds})
+			report.Preparation = &result
 			emit("prepare", result.Output)
 			if e != nil {
 				return e
 			}
-			if result.ExitCode != 0 {
+			if result.ExitCode != 0 || result.TimedOut {
+				retryable = result.TimedOut || transient(fmt.Errorf("%s", result.Output))
 				return fmt.Errorf("prepare_command_failed")
 			}
 		}
@@ -453,6 +524,9 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 			emit("baseline_test", result.Output)
 		}
 		prompt := l.Task.Spec.Prompt
+		if a.Profile.Executor != "fixture" {
+			prompt += "\n\nThe platform has already prepared dependencies and frozen verification before editing. Do not weaken checks or change the verification plan.\nVerification (" + frozen.Kind + "): " + frozen.TestCommand
+		}
 		var finalErr error
 		for round := 0; round <= 2; round++ {
 			if e = stage("agent"); e != nil {
@@ -583,6 +657,9 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 		manifest = append(manifest, item)
 	}
 	verification := &domain.Verification{State: report.Verification, RepairRounds: report.RepairRounds, TestsModified: report.TestsModified, Tests: []domain.TestSummary{}}
+	if report.Plan != nil {
+		verification.Kind = report.Plan.Kind
+	}
 	if report.Baseline != nil {
 		baseline := domain.Summarize(*report.Baseline)
 		verification.Baseline = &baseline
@@ -652,12 +729,18 @@ func (w *Worker) upload(ctx context.Context, p domain.Proof, name string, b []by
 func markdown(r Report) string {
 	body := fmt.Sprintf("# Execution report\n\n- Task: `%s`\n- Attempt: `%s` (fence %d)\n- Baseline: `%s`\n- Status: **%s**\n- Verification: **%s**\n- Repair rounds: %d\n- Image: `%s`\n- Agent: `%s` / `%s`\n- Error: %s\n- Log truncated: %t\n- Artifacts complete: %t\n\n## Changed files\n\n```text\n%s\n```\n\n## Modified test/config files\n\n```text\n%s\n```\n\n%s\n", r.TaskID, r.AttemptID, r.Fence, r.SHA, r.Status, r.Verification, r.RepairRounds, r.Image, r.Executor, r.AgentVersion, r.Error, r.LogTruncated, r.ArtifactsComplete, strings.Join(r.Files, "\n"), strings.Join(r.TestsModified, "\n"), r.Note)
 	var detail strings.Builder
+	if r.Plan != nil {
+		fmt.Fprintf(&detail, "\n## Frozen execution plan\n\nSource: %s; coverage: **%s**; baseline: `%s`.\n\n%s\n\nPreparation:\n```sh\n%s\n```\n\nVerification:\n```sh\n%s\n```\n\nBuild/lint/static checks do not establish functional correctness.\n", r.Plan.Source, r.Plan.Kind, r.Plan.SHA, r.Plan.Rationale, r.Plan.PrepareCommand, r.Plan.TestCommand)
+	}
 	detail.WriteString("\n## Tests\n\n| Run | Exit | Duration (ms) | Timed out | Log truncated |\n|---|---:|---:|---|---|\n")
 	row := func(label string, test domain.TestResult) {
 		fmt.Fprintf(&detail, "| %s | %d | %d | %t | %t |\n", label, test.ExitCode, test.DurationMS, test.TimedOut, test.Truncated)
 	}
 	if r.Baseline != nil {
 		row("Baseline", *r.Baseline)
+	}
+	if r.Preparation != nil {
+		row("Preparation", *r.Preparation)
 	}
 	for i, test := range r.Tests {
 		row(fmt.Sprintf("Verification %d", i+1), test)

@@ -2,6 +2,20 @@
 
 记录日期：2026-10-01。没有将模拟 Worker 结果作为 Docker 或跨机验收。
 
+## 2026-10-02 自动准备与验证计划
+
+实现自动依赖准备、原始配置检测，以及单独只读 Workspace 内的 Codex 规划。计划在修改前与固定 SHA 绑定并持久化；后续 attempt 和手动重试复用，平台独立执行基线及最终检查，报告区分 tests/build/lint/static。
+
+- 全包 `go test -race ./... -count=1` 和 `go vet ./...` 通过；连接真实 PostgreSQL 17.4，新增冻结计划、重复请求、替换拒绝、租约过期、恢复领取、取消和手动重试测试通过。首次受限执行遇到 Git for Windows 无法创建 signal pipe；相同检查在允许子进程的执行环境中重跑通过。
+- 真 Codex 0.114.0 Windows 契约在本地 Responses fixture 下通过，包括 `--output-last-message` 结果文件；这项不代表真实模型调用。
+- 不提供准备/验证命令的真实 Vue 仓库固定 SHA `8e3f5da2b3b7f02241bfa71ff281606f63c22a75`：确定性 Agent 任务 `964f14a893262c5a50b8010b393da748` 成功，约 73 秒；平台自动 `npm ci --no-audit --no-fund`、基线 `npm run build`、最终相同构建、归档和下载校验全部通过。
+- 最新镜像部署后相同验收再次通过：任务 `51090fdb868ff64464fb067454ed2311`，约 75 秒；API readiness、Compose 配置和 OpenAPI 的 56 个本地引用检查通过。
+- 同一 Vue 项目真实 BigModel glm-5.3/Codex 任务 `c25cfedd98aa24b49a05745e612c5b75` 成功，约 61 秒。无手填命令，真实模型完成 README 修改，平台自动安装原锁文件依赖、独立构建并归档。验证类型是 build，不能据此宣称功能测试覆盖。
+- README-only 仓库真实规划与编辑测试 `d37dfb0d112f44ab63fd65b9d34dc749` 通过验收断言，约 43 秒：规划 Agent 如实返回 unavailable，编辑产物被归档，任务按预期 failed/verification_unavailable，没有伪造成功。首次规划发现 CODEX_HOME 未创建，修复后完成上述复测。
+- Shell 项目任务 `c6994b08d4cbf9f1cd9bc67f7a30416e` 已实际由模型提出并冻结 `./test_runner -s /bin/sh`，平台执行基线并进入编辑/修复。原测试依赖镜像缺失的工具；测试程序原先 320 秒等待上限触发清理取消，该上限已改为任务截止时间加清理余量。再次任务 `e3ad37ff64ef2d2d2cd5082062991fcb` 被 BigModel 返回 Quota exceeded，未完成这一项目的成功端到端验收，未继续付费重试。该额外测试须显式设置 `E2E_PLANNER_SHELL=1`，并准备兼容工具链和供应商额度。
+
+生产 services/workspace 镜像已实际构建并更新本地 Compose。多 Engine、私有凭据等未验收项仍见本文后续列表。
+
 2026-10-02 排障：日志页上下键被任务列表截获，鼠标事件未启用/转发；已修复日志与报告滚动、鼠标位置限制、暂停/恢复跟随，Windows 客户端已重新编译安装。对应回归和全包 race/vet 通过。Docker 重启后数据库与对象存储停止，恢复生产服务并添加 unless-stopped。任务 `7592950e02e3f94c4889f30ccc9ba457` 初次遇到 HTTP 429 后自动重试，最终由用户取消；原始日志未区分供应商与网关限流，不将其归因于供应商配额。已分离每 attempt 的模型请求（4）和出口连接（32）限额，避免依赖下载争用模型额度，并增加限流来源日志。
 
 任务 `80665406d37334f0039e6a41c223de6a` 完成代码修改，但根 package.json 只有 serve/build/lint、无 test，终态 verification_unavailable；23,953 字节补丁及报告、日志已下载并通过 SHA-256 校验。原始锁文件 916 个下载 URL 来自 registry.npmmirror.com，此前被受控出口拒绝；现允许该域名及 cdn.npmmirror.com。实际验收使用数据库有效租约、真实网关、无直连出口的独立 Docker 网络、非 root 只读 Workspace，从官方及镜像源分别 npm pack vue@2.6.14 成功，清理诊断网络并恢复 Worker。它不代表原任务修改已通过构建或功能测试；未重新调用付费模型。

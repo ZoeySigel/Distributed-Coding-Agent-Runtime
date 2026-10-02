@@ -76,16 +76,19 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 func Hash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
-const taskCols = `id,owner,parent_id,spec,status,stage,sha,fence,attempt_id,error,created_at,deadline,updated_at`
+const taskCols = `id,owner,parent_id,spec,status,stage,sha,fence,attempt_id,error,created_at,deadline,updated_at,execution_plan`
 
 func scanTask(row pgx.Row) (t domain.Task, e error) {
-	var b []byte
-	e = row.Scan(&t.ID, &t.Owner, &t.ParentID, &b, &t.Status, &t.Stage, &t.SHA, &t.Fence, &t.AttemptID, &t.Error, &t.CreatedAt, &t.Deadline, &t.UpdatedAt)
+	var b, plan []byte
+	e = row.Scan(&t.ID, &t.Owner, &t.ParentID, &b, &t.Status, &t.Stage, &t.SHA, &t.Fence, &t.AttemptID, &t.Error, &t.CreatedAt, &t.Deadline, &t.UpdatedAt, &plan)
 	if errors.Is(e, pgx.ErrNoRows) {
 		e = domain.ErrNotFound
 	}
 	if e == nil {
 		e = json.Unmarshal(b, &t.Spec)
+	}
+	if e == nil && plan != nil {
+		e = json.Unmarshal(plan, &t.Plan)
 	}
 	return
 }
@@ -149,6 +152,7 @@ func (s *Store) Create(ctx context.Context, owner, key string, spec domain.Spec,
 		return domain.Task{}, e
 	}
 	sha := ""
+	var inheritedPlan *domain.ExecutionPlan
 	if parent != "" {
 		p, e := scanTask(tx.QueryRow(ctx, "SELECT "+taskCols+" FROM tasks WHERE id=$1 AND owner=$2 FOR UPDATE", parent, owner))
 		if e != nil {
@@ -158,12 +162,20 @@ func (s *Store) Create(ctx context.Context, owner, key string, spec domain.Spec,
 			return domain.Task{}, domain.ErrConflict
 		}
 		sha = p.SHA
+		inheritedPlan = p.Plan
 	}
 	raw, _ := json.Marshal(spec)
 	id := domain.ID()
 	t, e := scanTask(tx.QueryRow(ctx, "INSERT INTO tasks(id,owner,parent_id,spec,status,sha,deadline) VALUES($1,$2,$3,$4,'queued',$5,clock_timestamp()+make_interval(secs => $6)) RETURNING "+taskCols, id, owner, parent, raw, sha, spec.TimeoutSeconds))
 	if e != nil {
 		return t, e
+	}
+	if inheritedPlan != nil {
+		plan, _ := json.Marshal(inheritedPlan)
+		if _, e = tx.Exec(ctx, "UPDATE tasks SET execution_plan=$2 WHERE id=$1", id, plan); e != nil {
+			return t, e
+		}
+		t.Plan = inheritedPlan
 	}
 	_, e = tx.Exec(ctx, "INSERT INTO idempotency_records(owner,key,request_hash,task_id) VALUES($1,$2,$3,$4)", owner, key, hash, id)
 	if e != nil {

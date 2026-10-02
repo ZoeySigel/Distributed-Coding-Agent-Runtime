@@ -40,6 +40,8 @@ func main() {
 		v, e = runner.Shell(ctx, in)
 	case "agent":
 		v, e = runner.Agent(ctx, in)
+	case "plan":
+		v, e = runner.Plan(ctx, in)
 	case "collect":
 		v, e = runner.Collect(ctx, in)
 	default:

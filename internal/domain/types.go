@@ -76,19 +76,20 @@ func Terminal(s string) bool {
 }
 
 type Task struct {
-	ID        string    `json:"id"`
-	Owner     string    `json:"-"`
-	ParentID  string    `json:"parent_id,omitempty"`
-	Spec      Spec      `json:"spec"`
-	Status    string    `json:"status"`
-	Stage     string    `json:"stage"`
-	SHA       string    `json:"sha,omitempty"`
-	Fence     int64     `json:"fence"`
-	AttemptID string    `json:"attempt_id,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	Deadline  time.Time `json:"deadline"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string         `json:"id"`
+	Owner     string         `json:"-"`
+	ParentID  string         `json:"parent_id,omitempty"`
+	Spec      Spec           `json:"spec"`
+	Status    string         `json:"status"`
+	Stage     string         `json:"stage"`
+	SHA       string         `json:"sha,omitempty"`
+	Fence     int64          `json:"fence"`
+	AttemptID string         `json:"attempt_id,omitempty"`
+	Error     string         `json:"error,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+	Deadline  time.Time      `json:"deadline"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	Plan      *ExecutionPlan `json:"execution_plan,omitempty"`
 }
 type Attempt struct {
 	ID           string        `json:"id"`
@@ -156,6 +157,7 @@ type TestSummary struct {
 }
 type Verification struct {
 	State         string        `json:"state"`
+	Kind          string        `json:"kind,omitempty"`
 	Baseline      *TestSummary  `json:"baseline,omitempty"`
 	Tests         []TestSummary `json:"tests"`
 	RepairRounds  int           `json:"repair_rounds"`

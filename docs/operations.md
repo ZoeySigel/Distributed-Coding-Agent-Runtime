@@ -34,7 +34,7 @@ API 需要 PostgreSQL 和 S3 可连接；MinIO 尚未启动时 API 会退出，�
 | Worker 无法创建容器 | profile 镜像是否在本机、Docker socket 权限、宿主磁盘、Engine 28+ |
 | clone 失败 | ref/固定 SHA 是否存在、只读 Token 权限、代理允许的 GitHub 域名、网络 |
 | Agent 失败 | model-key、profile model、固定 CLI 版本与响应事件、模型接口权限 |
-| verification_unavailable | 显式提供 test_command，或修正根目录测试配置 |
+| verification_unavailable | 查看 execution_plan.rationale。平台已尝试自动识别和只读模型规划；仓库缺少有意义的检查或 profile 不包含必要工具时，会保留补丁并报告验证缺失。命令仍可选填以覆盖自动计划；修改配置后提交新任务，重试复用原计划 |
 | 测试找不到依赖 | prepare_command 是否执行成功；使用定制 profile 工具链 |
 | archiving 失败 | S3 连通、产物大小上限、Git 收集输出；任务可能由租约恢复自动重跑 |
 | worker_lost | Worker/Engine 是否退出、网络与数据库延迟；确认后续 fence 已增加 |

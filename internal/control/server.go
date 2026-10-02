@@ -410,6 +410,24 @@ func (s *Server) internal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		JSON(w, 200, map[string]any{"lease_until": until, "ttl_seconds": s.DB.LeaseSeconds})
+	case "/internal/plan":
+		var v struct {
+			Proof domain.Proof         `json:"proof"`
+			Plan  domain.ExecutionPlan `json:"plan"`
+		}
+		if !decode(w, r, &v) {
+			return
+		}
+		if e := v.Plan.Validate(); e != nil {
+			JSON(w, 400, map[string]string{"error": e.Error()})
+			return
+		}
+		plan, e := s.DB.FreezePlan(ctx, v.Proof, v.Plan)
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		JSON(w, 200, plan)
 	case "/internal/credential":
 		var p domain.Proof
 		if !decode(w, r, &p) {
