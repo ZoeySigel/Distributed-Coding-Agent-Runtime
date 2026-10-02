@@ -4,6 +4,8 @@
 
 平台实现 PostgreSQL 持久化队列、事务领取、租约、fencing token、幂等请求、取消、超时、故障重试和孤儿资源回收。任务采用至少一次执行语义：崩溃后可能重复调用模型，但只有当前有效 attempt 能提交权威结果。
 
+验证成功后默认自动发布 Draft PR。独立 publisher 使用持久化发布队列与固定任务分支，GitHub 故障只重试发布；写凭据不进入 Agent。需要一次性配置目标仓库的 GitHub 写权限，见 [自动 PR 配置与恢复](docs/pull-requests.md)。不自动合并；`--auto-pr=false` 可关闭发布。
+
 ## 快速启动
 
 需要 Go 1.24+、Linux Docker Engine 28+ 和 Docker Compose。Windows 使用 Docker Desktop 的 Linux Engine；Worker 本身在 Linux 容器中运行。

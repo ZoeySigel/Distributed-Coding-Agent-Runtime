@@ -362,6 +362,7 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 	}
 	exec := &ContainerExecutor{Runtime: w.Engine, Observe: func(line string) { emit("agent.event", line) }}
 	var patch []byte
+	var changes domain.ChangeSet
 	retryable := false
 	var runErr error
 	runPipeline := func() error {
@@ -588,10 +589,11 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 			return e
 		}
 		var collected runner.Collected
-		if e = exec.invoke(ctx, collector, "collect", runner.Input{SHA: report.SHA}, &collected); e != nil {
+		if e = exec.invoke(ctx, collector, "collect", runner.Input{SHA: report.SHA, CollectPublication: l.Task.Spec.AutoPR == nil || *l.Task.Spec.AutoPR}, &collected); e != nil {
 			return e
 		}
 		patch = collected.Patch
+		changes = collected.ChangeSet
 		report.Files = collected.Files
 		report.TestsModified = collected.TestsModified
 		report.ArtifactsComplete = true
@@ -632,6 +634,13 @@ func (w *Worker) execute(parent context.Context, a assignment) {
 		b    []byte
 	}{{"report.json", b}, {"report.md", []byte(md)}, {"execution.log", log.Buffer.Bytes()}}
 	if report.ArtifactsComplete {
+		if l.Task.Spec.AutoPR == nil || *l.Task.Spec.AutoPR {
+			data, _ := json.Marshal(changes)
+			files = append(files, struct {
+				name string
+				b    []byte
+			}{"publication.json", data})
+		}
 		files = append(files, struct {
 			name string
 			b    []byte

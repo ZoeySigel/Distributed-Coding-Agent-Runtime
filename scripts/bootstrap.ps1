@@ -13,4 +13,6 @@ $utf8 = New-Object Text.UTF8Encoding $false
 [IO.File]::WriteAllText((Join-Path (Get-Location) 'secrets/worker-token'), $workerSecret, $utf8)
 [IO.File]::WriteAllText((Join-Path (Get-Location) 'secrets/repositories.json'), '{}', $utf8)
 [IO.File]::WriteAllText((Join-Path (Get-Location) 'secrets/model-key'), '', $utf8)
+New-Item -ItemType Directory 'secrets/publication' | Out-Null
+[IO.File]::WriteAllText((Join-Path (Get-Location) 'secrets/publication/repositories.json'), '{}', $utf8)
 Write-Host 'Created configuration. API token is in secrets/api-tokens.json; add model key to secrets/model-key.'

@@ -65,6 +65,9 @@ func run() error {
 	test := fs.String("test", "", "test command override")
 	prepare := fs.String("prepare", "", "dependency preparation command")
 	credential := fs.String("credential", "", "server-side credential reference")
+	autoPR := fs.Bool("auto-pr", true, "automatically publish a draft PR after successful verification")
+	prBase := fs.String("pr-base", "", "PR target branch (default publisher configuration or repository default)")
+	prTitle := fs.String("pr-title", "", "PR title override")
 	timeout := fs.Int("timeout", 3600, "total deadline in seconds")
 	testTimeout := fs.Int("test-timeout", 0, "test timeout in seconds (default min(600,total timeout))")
 	follow := fs.Bool("follow", false, "stream until terminal")
@@ -110,7 +113,7 @@ func run() error {
 		if *jsonOutput {
 			return &exitError{2, "UI does not support --json; use list/status/logs for scripts"}
 		}
-		s := domain.Spec{Repository: *repo, Prompt: *prompt, Ref: *ref, Profile: *profile, TestCommand: *test, PrepareCommand: *prepare, CredentialRef: *credential, TimeoutSeconds: *timeout, TestTimeoutSeconds: *testTimeout}
+		s := domain.Spec{Repository: *repo, Prompt: *prompt, Ref: *ref, Profile: *profile, TestCommand: *test, PrepareCommand: *prepare, CredentialRef: *credential, TimeoutSeconds: *timeout, TestTimeoutSeconds: *testTimeout, AutoPR: autoPR, PRBase: *prBase, PRTitle: *prTitle}
 		if *file != "" {
 			if e := config.JSONFile(*file, &s); e != nil {
 				return e
@@ -127,7 +130,7 @@ func run() error {
 		}
 		return tui.Run(ctx, c, tui.Options{Spec: s, TokenFile: *tokenFile, Output: *outdir, Note: note})
 	case "submit":
-		s := domain.Spec{Repository: *repo, Prompt: *prompt, Ref: *ref, Profile: *profile, TestCommand: *test, PrepareCommand: *prepare, CredentialRef: *credential, TimeoutSeconds: *timeout, TestTimeoutSeconds: *testTimeout}
+		s := domain.Spec{Repository: *repo, Prompt: *prompt, Ref: *ref, Profile: *profile, TestCommand: *test, PrepareCommand: *prepare, CredentialRef: *credential, TimeoutSeconds: *timeout, TestTimeoutSeconds: *testTimeout, AutoPR: autoPR, PRBase: *prBase, PRTitle: *prTitle}
 		if *file != "" {
 			if e := config.JSONFile(*file, &s); e != nil {
 				return e
@@ -147,14 +150,19 @@ func run() error {
 		if e := c.Do(ctx, "GET", fmt.Sprintf("/v1/tasks?offset=%d&limit=%d", *offset, *limit), nil, &out, nil); e != nil {
 			return e
 		}
-	case "status", "cancel", "retry":
+	case "pr", "pr-retry", "status", "cancel", "retry":
 		if *id == "" {
 			return &exitError{2, "--id required"}
 		}
 		path := "/v1/tasks/" + *id
 		method := "GET"
 		headers := map[string]string{}
-		if cmd != "status" {
+		if cmd == "pr" {
+			path += "/pr"
+		} else if cmd == "pr-retry" {
+			method = "POST"
+			path += "/pr/retry"
+		} else if cmd != "status" {
 			method = "POST"
 			path += "/" + cmd
 		}

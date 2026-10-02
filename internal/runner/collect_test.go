@@ -52,7 +52,7 @@ func TestPatchIncludesCommittedChangesAndIgnoresMaliciousConfig(t *testing.T) {
 	git(source, "commit", "-m", "agent commit")
 	git(source, "config", "diff.external", "nonexistent-should-never-run")
 	git(source, "config", "core.hooksPath", "malicious-hooks")
-	result, e := CollectPaths(context.Background(), Input{SHA: sha}, source, baseline, temp)
+	result, e := CollectPaths(context.Background(), Input{SHA: sha, CollectPublication: true}, source, baseline, temp)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -63,5 +63,27 @@ func TestPatchIncludesCommittedChangesAndIgnoresMaliciousConfig(t *testing.T) {
 	}
 	if len(result.Files) != 3 {
 		t.Fatalf("files: %v", result.Files)
+	}
+	if e := result.ChangeSet.Validate(); e != nil {
+		t.Fatal(e)
+	}
+	if len(result.ChangeSet.Changes) != 3 {
+		t.Fatal("publication changes missing")
+	}
+	for _, c := range result.ChangeSet.Changes {
+		switch c.Path {
+		case "binary.bin":
+			if string(c.Content) != string([]byte{0, 1, 2, 3}) || c.Mode != "100644" {
+				t.Fatal(c)
+			}
+		case "old.txt":
+			if !c.Delete {
+				t.Fatal("deletion lost")
+			}
+		case "new.txt":
+			if string(c.Content) != "after\n" {
+				t.Fatal(c)
+			}
+		}
 	}
 }

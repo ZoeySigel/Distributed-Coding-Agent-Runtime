@@ -10,7 +10,12 @@ printf '{"local":"%s"}\n' "$(token)" > secrets/api-tokens.json
 token > secrets/worker-token
 printf '{}' > secrets/repositories.json
 : > secrets/model-key
+mkdir secrets/publication
+printf '{}' > secrets/publication/repositories.json
+chmod 755 secrets/publication
+chmod 644 secrets/publication/repositories.json
 # Non-root API/gateway containers need read access to bind-mounted files.
 chmod 700 secrets
 chmod 644 secrets/*
+chmod 755 secrets/publication
 echo 'Created configuration. Add the model key to secrets/model-key. Protect this directory with host ACLs.'

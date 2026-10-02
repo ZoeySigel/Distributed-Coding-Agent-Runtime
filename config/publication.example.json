@@ -1,0 +1,6 @@
+{
+  "YOUR_OWNER/YOUR_REPOSITORY": {
+    "token_file": "/run/publication/github-token",
+    "base": "main"
+  }
+}

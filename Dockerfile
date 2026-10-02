@@ -5,6 +5,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /out/server ./cmd/server && \
+    CGO_ENABLED=0 go build -trimpath -o /out/publisher ./cmd/publisher && \
     CGO_ENABLED=0 go build -trimpath -o /out/worker ./cmd/worker && \
     CGO_ENABLED=0 go build -trimpath -o /out/gateway ./cmd/gateway && \
     CGO_ENABLED=0 go build -trimpath -o /out/dcar ./cmd/dcar && \

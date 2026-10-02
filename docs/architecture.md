@@ -72,6 +72,10 @@ Workspace 使用非 root、capabilities 全移除、no-new-privileges、只读�
 
 默认容器镜像标签固定；正式部署应把 profile image 改为经过验证的 digest。容器不是恶意多租户的完整安全边界。磁盘配额、TLS、数据库备份、对象存储冗余及集群级容量管理属于部署要求。
 
+## PR 发布
+
+任务成功、manifest 登记和 publications outbox 入队处于同一事务。独立 publisher 以 SKIP LOCKED 和独立租约消费，不改变任务终态。它校验受信收集器生成的 publication.json，只通过 GitHub Git Data API 创建 blob/tree/commit 和固定任务分支，再创建 Draft PR；写凭据不进入 Worker/Workspace。GitHub 失败只重试发布，内容寻址 Git 对象、固定 commit 元数据、固定分支及全状态 PR 查询解决外部成功但响应丢失；数据库回执仍受当前发布租约约束。详情见 pull-requests.md。
+
 ## 终端客户端
 
 `internal/tui` 使用固定版本的 Bubble Tea、Bubbles 和 Lip Gloss，为现有 REST/SSE 提供界面，不引入控制面组件或本机执行器。网络操作通过异步 command 返回消息；任务选择的 generation 和 API 客户端身份过滤过期响应，切换任务、连接或退出时撤销旧 SSE。事件队列有容量上限并批量刷新，展示日志有独立的字节与事件数上限；过滤来自仓库的 ANSI/OSC 控制序列，避免日志操纵终端。

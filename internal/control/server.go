@@ -186,7 +186,12 @@ func (s *Server) public(w http.ResponseWriter, r *http.Request) {
 			fail(w, e)
 			return
 		}
-		JSON(w, 200, map[string]any{"task": t, "attempts": a})
+		publication, e := s.DB.Publication(r.Context(), t.ID)
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		JSON(w, 200, map[string]any{"task": t, "attempts": a, "publication": publication})
 		return
 	}
 	if len(parts) < 4 {
@@ -204,10 +209,29 @@ func (s *Server) public(w http.ResponseWriter, r *http.Request) {
 			fail(w, e)
 			return
 		}
-		JSON(w, 200, map[string]any{"task": t, "attempts": a, "artifacts": artifacts, "note": "Control-plane audit report. Workspace details, if available, are in report.json. Cancellation, timeout and worker loss may leave no workspace snapshot; persisted events survive."})
+		publication, e := s.DB.Publication(r.Context(), t.ID)
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		JSON(w, 200, map[string]any{"task": t, "attempts": a, "artifacts": artifacts, "publication": publication, "note": "Control-plane audit report. Workspace details, if available, are in report.json. Cancellation, timeout and worker loss may leave no workspace snapshot; persisted events survive."})
 		return
 	}
 	switch {
+	case parts[3] == "pr" && len(parts) == 4 && r.Method == "GET":
+		p, e := s.DB.Publication(r.Context(), t.ID)
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		JSON(w, 200, p)
+	case parts[3] == "pr" && len(parts) == 5 && parts[4] == "retry" && r.Method == "POST":
+		p, e := s.DB.RetryPublication(r.Context(), t.ID)
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		JSON(w, 202, p)
 	case parts[3] == "cancel" && len(parts) == 4 && r.Method == "POST":
 		v, e := s.DB.Cancel(r.Context(), t.ID, owner)
 		if e != nil {
@@ -560,6 +584,17 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "dcar_tasks{status=%q} %d\n", status, n)
 	}
 	rows.Close()
+	publicationRows, err := s.DB.Pool.Query(r.Context(), "SELECT status,count(*) FROM publications GROUP BY status")
+	if err == nil {
+		for publicationRows.Next() {
+			var status string
+			var n int
+			if publicationRows.Scan(&status, &n) == nil {
+				fmt.Fprintf(w, "dcar_publications{status=%q} %d\n", status, n)
+			}
+		}
+		publicationRows.Close()
+	}
 	for name, q := range map[string]string{"queue_oldest_seconds": "SELECT COALESCE(EXTRACT(EPOCH FROM (clock_timestamp()-min(created_at))),0) FROM tasks WHERE status IN ('queued','retry_wait')", "attempts_total": "SELECT count(*) FROM attempts", "retries_total": "SELECT count(*) FROM attempts WHERE fence>1", "lease_expirations_total": "SELECT count(*) FROM attempts WHERE error='worker_lost'", "execution_seconds_sum": "SELECT COALESCE(sum(EXTRACT(EPOCH FROM (finished_at-started_at))),0) FROM attempts WHERE finished_at IS NOT NULL"} {
 		var n float64
 		if e := s.DB.Pool.QueryRow(r.Context(), q).Scan(&n); e == nil {

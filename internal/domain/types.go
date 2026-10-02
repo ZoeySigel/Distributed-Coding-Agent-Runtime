@@ -25,6 +25,9 @@ type Spec struct {
 	TestCommand        string `json:"test_command,omitempty"`
 	TimeoutSeconds     int    `json:"timeout_seconds"`
 	TestTimeoutSeconds int    `json:"test_timeout_seconds"`
+	AutoPR             *bool  `json:"auto_pr,omitempty"`
+	PRBase             string `json:"pr_base,omitempty"`
+	PRTitle            string `json:"pr_title,omitempty"`
 }
 
 func (s *Spec) Normalize() error {
@@ -57,6 +60,13 @@ func (s *Spec) Normalize() error {
 	}
 	if len(s.TestCommand) > 8192 || len(s.PrepareCommand) > 8192 {
 		return fmt.Errorf("command too long")
+	}
+	// Canonicalize the default without changing old idempotency request hashes.
+	if s.AutoPR != nil && *s.AutoPR {
+		s.AutoPR = nil
+	}
+	if len(s.PRTitle) > 240 || strings.ContainsAny(s.PRTitle, "\r\n\x00") || len(s.PRBase) > 256 || strings.HasPrefix(s.PRBase, "-") || strings.ContainsAny(s.PRBase, "\x00\r\n ~^:?*[\\") {
+		return fmt.Errorf("invalid PR title or base branch")
 	}
 	return nil
 }

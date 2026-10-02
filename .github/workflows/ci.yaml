@@ -33,7 +33,7 @@ jobs:
       - name: Wait for readiness
         run: for i in $(seq 1 60); do curl -fsS http://localhost:8080/readyz && exit 0; sleep 2; done; exit 1
       - name: Fixture pipeline
-        run: E2E_TOKEN=$(python3 -c 'import json; print(json.load(open("secrets/api-tokens.json"))["local"])') E2E_URL=http://localhost:8080 E2E_DOCKER_FAILURES=1 go test ./integration -v -timeout 15m
+        run: E2E_TOKEN=$(python3 -c 'import json; print(json.load(open("secrets/api-tokens.json"))["local"])') E2E_URL=http://localhost:8080 E2E_DOCKER_FAILURES=1 E2E_PUBLICATION_NO_CREDENTIAL=1 go test ./integration -v -timeout 15m
       - if: failure()
         run: docker compose logs --tail 100
       - if: always()

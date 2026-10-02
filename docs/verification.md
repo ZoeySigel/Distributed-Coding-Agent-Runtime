@@ -4,6 +4,10 @@
 
 ## 2026-10-02 自动准备与验证计划
 
+自动 PR 扩展：新增事务 outbox、独立 publisher、GitHub Git Data/PR 适配、CLI 与 TUI 发布状态。全包 race/vet、真实 PostgreSQL 发布竞争/恢复/fencing/成功入队测试通过；真实 Git 收集器验证已提交修改、新文件、二进制和删除的 publication.json；GitHub HTTP fixture 验证分支及 PR 已创建但响应丢失后的重放、关闭 PR 查询、分支冲突、基线分歧、tree/blob 完整性及权限/限流分类。HTTP fixture 不代表真实 GitHub 创建成功。
+
+生产镜像构建并部署 publisher，真实 Docker E2E `TestFixturePublicationWithoutWriteAccess` 通过，任务 `4fac8b574036c5a252f3e424881fc233`，约 9 秒：代码任务 succeeded，受信收集 → S3 → 发布 outbox → publisher 完整执行，未配置 octocat/Hello-World 写权限时 publication 独立 failed，避免重新跑模型或虚报 PR 成功。本地客户端已更新。未提供 GitHub 写 Token，真实 GitHub 创建 Draft PR、权限配置与 API tree 完整性尚未实机验收；配置步骤见 pull-requests.md。
+
 实现自动依赖准备、原始配置检测，以及单独只读 Workspace 内的 Codex 规划。计划在修改前与固定 SHA 绑定并持久化；后续 attempt 和手动重试复用，平台独立执行基线及最终检查，报告区分 tests/build/lint/static。
 
 - 全包 `go test -race ./... -count=1` 和 `go vet ./...` 通过；连接真实 PostgreSQL 17.4，新增冻结计划、重复请求、替换拒绝、租约过期、恢复领取、取消和手动重试测试通过。首次受限执行遇到 Git for Windows 无法创建 signal pipe；相同检查在允许子进程的执行环境中重跑通过。

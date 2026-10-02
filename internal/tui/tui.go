@@ -63,8 +63,9 @@ func Run(ctx context.Context, c *client.Client, opts Options) error {
 }
 
 type detail struct {
-	Task     domain.Task      `json:"task"`
-	Attempts []domain.Attempt `json:"attempts"`
+	Publication *domain.Publication `json:"publication,omitempty"`
+	Task        domain.Task         `json:"task"`
+	Attempts    []domain.Attempt    `json:"attempts"`
 }
 type snapshotMsg struct {
 	Client *client.Client
@@ -321,7 +322,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.page == "connect" {
 			return m, ticker()
 		}
-		return m, tea.Batch(ticker(), m.load())
+		var publication tea.Cmd
+		if p := m.current.Publication; p != nil && (p.Status == "pending" || p.Status == "running" || p.Status == "retry_wait") {
+			publication = m.fetchDetail(m.selectedID())
+		}
+		return m, tea.Batch(ticker(), m.load(), publication)
 	case snapshotMsg:
 		if msg.Client != nil && msg.Client != m.client {
 			return m, nil
@@ -738,7 +743,7 @@ func (m *model) formKey(msg tea.KeyMsg) tea.Cmd {
 				m.notice = "Test timeout must be an integer."
 				return nil
 			}
-			s := domain.Spec{Repository: m.fields[0].Value(), Prompt: m.prompt.Value(), Ref: m.fields[1].Value(), Profile: m.fields[2].Value(), PrepareCommand: m.fields[3].Value(), TestCommand: m.fields[4].Value(), CredentialRef: m.fields[5].Value(), TimeoutSeconds: total, TestTimeoutSeconds: test}
+			s := domain.Spec{Repository: m.fields[0].Value(), Prompt: m.prompt.Value(), Ref: m.fields[1].Value(), Profile: m.fields[2].Value(), PrepareCommand: m.fields[3].Value(), TestCommand: m.fields[4].Value(), CredentialRef: m.fields[5].Value(), TimeoutSeconds: total, TestTimeoutSeconds: test, AutoPR: m.opts.Spec.AutoPR, PRBase: m.opts.Spec.PRBase, PRTitle: m.opts.Spec.PRTitle}
 			if err = s.Normalize(); err != nil {
 				m.message(err)
 				return nil
@@ -837,6 +842,9 @@ func (m *model) content() {
 					text += "\nThis check does not establish functional correctness."
 				}
 			}
+			if p := m.current.Publication; p != nil {
+				text += fmt.Sprintf("\n\nPull request · %s\nBranch %s\n%s\n%s", p.Status, clean(p.Branch), clean(p.URL), clean(p.Error))
+			}
 			for _, a := range m.current.Attempts {
 				text += fmt.Sprintf("\n\nAttempt %d · %s · %s\nWorker %s\n%s", a.Fence, a.Status, a.Stage, clean(a.WorkerID), clean(a.Error))
 				if v := a.Verification; v != nil {
@@ -878,7 +886,7 @@ func (m *model) View() string {
 		// Show a compact basic form, then scroll the optional settings into view with focus.
 		var body string
 		if m.focus <= 1 {
-			body = accent.Render("Repository") + "\n" + m.fields[0].View() + "\n\n" + accent.Render("Describe the coding task") + "\n" + m.prompt.View() + "\n\n" + muted.Render("Preparation and verification are planned automatically.\nTab for optional overrides; Enter adds a task line.")
+			body = accent.Render("Repository") + "\n" + m.fields[0].View() + "\n\n" + accent.Render("Describe the coding task") + "\n" + m.prompt.View() + "\n\n" + muted.Render("Automatic preparation, verification and draft PR after success.\nPR requires configured repository write access.\nTab for optional overrides; Enter adds a task line.")
 		} else {
 			start := max(1, m.focus-3)
 			end := min(8, start+max(2, (m.height-10)/3))

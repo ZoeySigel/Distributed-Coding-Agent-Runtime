@@ -145,6 +145,22 @@ paths:
       responses:
         '200': {description: Lease deadline and configured TTL; SHA can only be pinned once}
         '409': {$ref: '#/components/responses/Conflict'}
+  /v1/tasks/{id}/pr:
+    parameters:
+      - {$ref: '#/components/parameters/taskId'}
+    get:
+      description: Independent publication state; null when no publication was requested or the task is not yet successful.
+      responses:
+        '200': {description: Publication, content: {application/json: {schema: {$ref: '#/components/schemas/Publication'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/tasks/{id}/pr/retry:
+    parameters:
+      - {$ref: '#/components/parameters/taskId'}
+    post:
+      description: Idempotently requeue a failed publication without rerunning the coding task. Published and active jobs are returned unchanged.
+      responses:
+        '202': {description: Publication, content: {application/json: {schema: {$ref: '#/components/schemas/Publication'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /internal/plan:
     post:
       security: [{workerAuth: []}]
@@ -248,6 +264,9 @@ components:
         test_command: {type: string, maxLength: 8192}
         timeout_seconds: {type: integer, minimum: 10, maximum: 86400, default: 3600}
         test_timeout_seconds: {type: integer, minimum: 1, description: Defaults to min(600,total timeout); must not exceed total timeout}
+        auto_pr: {type: boolean, default: true, description: Publish a draft PR after successful authoritative completion}
+        pr_base: {type: string, maxLength: 256}
+        pr_title: {type: string, maxLength: 240}
     Task:
       type: object
       properties:
@@ -279,6 +298,21 @@ components:
       properties:
         task: {$ref: '#/components/schemas/Task'}
         attempts: {type: array, items: {$ref: '#/components/schemas/Attempt'}}
+        publication: {$ref: '#/components/schemas/Publication'}
+    Publication:
+      type: object
+      nullable: true
+      properties:
+        task_id: {type: string}
+        status: {type: string, enum: [pending, running, retry_wait, published, failed, no_changes]}
+        branch: {type: string}
+        base: {type: string}
+        url: {type: string, format: uri}
+        number: {type: integer}
+        commit: {type: string}
+        attempts: {type: integer}
+        error: {type: string}
+        created_at: {type: string, format: date-time}
     Attempt:
       type: object
       properties:

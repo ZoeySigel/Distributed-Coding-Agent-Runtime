@@ -375,6 +375,12 @@ func (s *Store) Complete(ctx context.Context, c domain.Completion) error {
 	if e != nil {
 		return e
 	}
+	if status == "succeeded" && (t.Spec.AutoPR == nil || *t.Spec.AutoPR) {
+		_, e = tx.Exec(ctx, `INSERT INTO publications(task_id,status,branch,base) VALUES($1,'pending',$2,$3) ON CONFLICT(task_id) DO NOTHING`, t.ID, "dcar/task-"+t.ID, t.Spec.PRBase)
+		if e != nil {
+			return e
+		}
+	}
 	return tx.Commit(ctx)
 }
 

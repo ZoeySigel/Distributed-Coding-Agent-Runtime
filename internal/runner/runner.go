@@ -21,18 +21,19 @@ const Marker = "__DCAR_RESULT__"
 const OutputLimit = 1 << 20
 
 type Input struct {
-	Repository     string `json:"repository"`
-	Ref            string `json:"ref"`
-	SHA            string `json:"sha"`
-	Credential     string `json:"credential"`
-	Command        string `json:"command"`
-	Seconds        int    `json:"seconds"`
-	Prompt         string `json:"prompt"`
-	Model          string `json:"model"`
-	ModelCatalog   string `json:"model_catalog,omitempty"`
-	Executor       string `json:"executor"`
-	TestCommand    string `json:"test_command"`
-	PrepareCommand string `json:"prepare_command"`
+	Repository         string `json:"repository"`
+	Ref                string `json:"ref"`
+	SHA                string `json:"sha"`
+	Credential         string `json:"credential"`
+	Command            string `json:"command"`
+	Seconds            int    `json:"seconds"`
+	Prompt             string `json:"prompt"`
+	Model              string `json:"model"`
+	ModelCatalog       string `json:"model_catalog,omitempty"`
+	Executor           string `json:"executor"`
+	TestCommand        string `json:"test_command"`
+	PrepareCommand     string `json:"prepare_command"`
+	CollectPublication bool   `json:"collect_publication"`
 }
 type Prepared struct {
 	SHA               string                `json:"sha"`
@@ -41,10 +42,11 @@ type Prepared struct {
 	Plan              *domain.ExecutionPlan `json:"execution_plan,omitempty"`
 }
 type Collected struct {
-	Patch         []byte   `json:"patch"`
-	Files         []string `json:"files"`
-	TestsModified []string `json:"tests_modified"`
-	SHA           string   `json:"sha"`
+	ChangeSet     domain.ChangeSet `json:"change_set"`
+	Patch         []byte           `json:"patch"`
+	Files         []string         `json:"files"`
+	TestsModified []string         `json:"tests_modified"`
+	SHA           string           `json:"sha"`
 }
 type AgentResult struct {
 	ExitCode  int    `json:"exit_code"`
@@ -315,7 +317,54 @@ func CollectPaths(ctx context.Context, in Input, source, baseline, temp string) 
 	if out.Truncated {
 		return Collected{}, fmt.Errorf("patch exceeds 16 MiB limit")
 	}
-	return Collected{Patch: out.Buffer.Bytes(), Files: files, TestsModified: tests, SHA: in.SHA}, nil
+	if !in.CollectPublication {
+		return Collected{Patch: out.Buffer.Bytes(), Files: files, TestsModified: tests, SHA: in.SHA}, nil
+	}
+	raw, e := call("diff", "--cached", "--raw", "--no-abbrev", "--no-renames", "-z", in.SHA, "--")
+	if e != nil {
+		return Collected{}, e
+	}
+	changes := domain.ChangeSet{SHA: in.SHA, Changes: []domain.Change{}}
+	tree, e := call("write-tree")
+	if e != nil {
+		return Collected{}, e
+	}
+	changes.Tree = strings.TrimSpace(string(tree))
+	parts := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00")
+	if len(raw) > 0 {
+		if len(parts)%2 != 0 {
+			return Collected{}, fmt.Errorf("invalid Git change records")
+		}
+		for i := 0; i < len(parts); i += 2 {
+			fields := strings.Fields(parts[i])
+			if len(fields) != 5 {
+				return Collected{}, fmt.Errorf("invalid Git change metadata")
+			}
+			change := domain.Change{Path: parts[i+1], Mode: fields[1], Delete: fields[4] == "D"}
+			if change.Delete {
+				change.Mode = strings.TrimPrefix(fields[0], ":")
+			} else {
+				blob := exec.CommandContext(ctx, args[0], append(append([]string{}, args[1:]...), "cat-file", "blob", fields[3])...)
+				blob.Dir = temp
+				blob.Env = append(os.Environ(), env...)
+				data := &Limited{Limit: 16 << 20}
+				blob.Stdout = data
+				blob.Stderr = io.Discard
+				if e := blob.Run(); e != nil {
+					return Collected{}, e
+				}
+				if data.Truncated {
+					return Collected{}, fmt.Errorf("publication blob exceeds limit")
+				}
+				change.Content = data.Buffer.Bytes()
+			}
+			changes.Changes = append(changes.Changes, change)
+		}
+	}
+	if e := changes.Validate(); e != nil {
+		return Collected{}, e
+	}
+	return Collected{Patch: out.Buffer.Bytes(), Files: files, TestsModified: tests, SHA: in.SHA, ChangeSet: changes}, nil
 }
 func Fixture(ctx context.Context, in Input) (AgentResult, error) {
 	return FixturePaths(ctx, in, "/workspace/repo")
